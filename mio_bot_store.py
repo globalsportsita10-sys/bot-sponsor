@@ -1,6 +1,6 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from flask import Flask
 from threading import Thread
 from datetime import datetime, timedelta
@@ -33,6 +33,19 @@ def calcola_prezzo(sel, ore):
     return tot
 
 # --- TASTIERE ---
+def menu_principale():
+    # Menu aggiornato con i tuoi link reali
+    kb = [
+        [InlineKeyboardButton("📣 Acquista Sponsor", callback_data='sel_std')],
+        [InlineKeyboardButton("📈 Acquista Incrementi", callback_data='menu_inc')],
+        [InlineKeyboardButton("🎁 Stato Ordine", callback_data='status'),
+         InlineKeyboardButton("🆘 Assistenza", url='https://t.me/GlobalSportsContatto')],
+        [InlineKeyboardButton("💰 Listino Prezzi ↗️", url='https://t.me/GlobalSportsSponsor'),
+         InlineKeyboardButton("⚠️ T&C ↗️", callback_data='tc')],
+        [InlineKeyboardButton("ℹ️ Come Funziona", callback_data='info')]
+    ]
+    return InlineKeyboardMarkup(kb)
+
 def kb_selezione(sel):
     kb = []
     # Goal e Juve sulla stessa riga
@@ -45,13 +58,14 @@ def kb_selezione(sel):
     # Streaming 3 per riga
     row = []
     for c in CANALI_STREAMING:
-        s = "✅" if c in sel else c.split()[1]
+        num = c.split()[1]
+        s = "✅" if c in sel else num
         row.append(InlineKeyboardButton(f"Str {s}", callback_data=f"t_{c}"))
         if len(row) == 3: kb.append(row); row = []
 
-    kb.append([InlineKeyboardButton("✨ Seleziona Tutti", callback_data="all_in")])
-    kb.append([InlineKeyboardButton("➡️ AVANTI", callback_data="go_durata")])
-    kb.append([InlineKeyboardButton("⬅️ Indietro", callback_data="back_to_start")])
+    kb.append([InlineKeyboardButton("Selezione Tutti", callback_data="all_in")])
+    kb.append([InlineKeyboardButton("⬅️ Indietro", callback_data="back_to_start"),
+               InlineKeyboardButton("Avanti ➡️", callback_data="go_durata")])
     return InlineKeyboardMarkup(kb)
 
 # --- SERVER ---
@@ -62,24 +76,39 @@ def run(): webapp.run(host='0.0.0.0', port=10000)
 
 # --- HANDLERS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    u_id = update.effective_user.id
     context.user_data.clear()
-    if u_id == ADMIN_ID:
-        kb = [[InlineKeyboardButton("📊 Ordini", callback_data='admin_orders')], [InlineKeyboardButton("🌐 Vista Utente", callback_data='user_view')]]
-        await (update.callback_query.edit_message_text("👮‍♂️ ADMIN", reply_markup=InlineKeyboardMarkup(kb)) if update.callback_query else update.message.reply_text("👮‍♂️ ADMIN", reply_markup=InlineKeyboardMarkup(kb)))
+    txt = (
+        "👋 <b>Benvenuto su SoccerHub!</b>\n\n"
+        "✅ Il servizio ufficiale per <b>sponsorizzazioni</b> e <b>incremento iscritti</b> sul "
+        "nostro network di canali dedicati al calcio.\n\n"
+        "👇 <b>Scegli il servizio</b> di cui hai bisogno:"
+    )
+    if update.callback_query:
+        await update.callback_query.edit_message_text(txt, reply_markup=menu_principale(), parse_mode='HTML')
     else:
-        kb = [[InlineKeyboardButton("📢 Sponsor Standard", callback_data='sel_std')], [InlineKeyboardButton("🚀 Incrementi", callback_data='menu_inc')]]
-        await (update.callback_query.edit_message_text("👋 Benvenuto!", reply_markup=InlineKeyboardMarkup(kb)) if update.callback_query else update.message.reply_text("👋 Benvenuto!", reply_markup=InlineKeyboardMarkup(kb)))
+        await update.message.reply_text(txt, reply_markup=menu_principale(), parse_mode='HTML')
 
-async def gestore(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def gestore_messaggi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    u_data = context.user_data
+    if u_data.get('attesa_orario'):
+        u_data['fascia'] = update.message.text
+        u_data['attesa_orario'] = False
+        txt = (f"✅ <b>RIEPILOGO ORDINE</b>\n\n"
+               f"📢 Canali: {len(u_data['sel'])}\n"
+               f"📅 Data: {u_data['data']}\n"
+               f"🕒 Inizio: {u_data['fascia']}\n"
+               f"💰 <b>Totale: {u_data['prezzo']}€</b>")
+        await update.message.reply_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ INVIA", callback_data="conf")]]), parse_mode='HTML')
+
+async def gestore_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
     u_data = context.user_data
     await query.answer()
 
-    if data in ['sel_std', 'user_view']:
+    if data == 'sel_std':
         u_data['sel'] = []
-        await query.edit_message_text("Seleziona i canali:", reply_markup=kb_selezione(u_data['sel']))
+        await query.edit_message_text("Hai scelto la modalità: 🌐 <b>Canale/Gruppo Standard</b>\n\n🤝 <b>Seleziona i canali</b>:", reply_markup=kb_selezione(u_data['sel']), parse_mode='HTML')
 
     elif data.startswith('t_'):
         c = data.replace('t_', '')
@@ -94,36 +123,48 @@ async def gestore(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == 'go_durata':
         if not u_data.get('sel'):
             return await query.answer("⚠️ Devi selezionare almeno un canale per poter proseguire!", show_alert=True)
-        kb = [[InlineKeyboardButton("3h", callback_data="h_3"), InlineKeyboardButton("6h", callback_data="h_6")],
-              [InlineKeyboardButton("12h", callback_data="h_12"), InlineKeyboardButton("24h", callback_data="h_24")],
+        kb = [[InlineKeyboardButton("3.0h", callback_data="h_3"), InlineKeyboardButton("6.0h", callback_data="h_6")],
+              [InlineKeyboardButton("12.0h", callback_data="h_12"), InlineKeyboardButton("24.0h", callback_data="h_24")],
               [InlineKeyboardButton("⬅️ Indietro", callback_data="sel_std")]]
-        await query.edit_message_text("Scegli la durata:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("⏱ <b>Scegli la durata:</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
     elif data.startswith('h_'):
-        u_data['ore'] = int(data.replace('h_', ''))
+        u_data['ore'] = float(data.replace('h_', ''))
         u_data['prezzo'] = calcola_prezzo(u_data['sel'], u_data['ore'])
         kb = []
-        for i in range(1, 6):
-            g = (datetime.now() + timedelta(days=i)).strftime("%d/%m")
-            kb.append([InlineKeyboardButton(f"🟢 {g}", callback_data=f"d_{g}")])
-        await query.edit_message_text("Seleziona il giorno:", reply_markup=InlineKeyboardMarkup(kb))
+        for i in range(1, 7):
+            g = (datetime.now() + timedelta(days=i)).strftime("%d-%m-%Y")
+            kb.append([InlineKeyboardButton(f"📅 {g}", callback_data=f"d_{g}")])
+        await query.edit_message_text("🗓 <b>Seleziona il giorno:</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
     elif data.startswith('d_'):
         u_data['data'] = data.replace('d_', '')
-        kb = [[InlineKeyboardButton("🌅 Mattina (09-12)", callback_data="f_09-12")],
-              [InlineKeyboardButton("☀️ Pomeriggio (15-18)", callback_data="f_15-18")],
-              [InlineKeyboardButton("🌙 Sera (21-00)", callback_data="f_21-00")]]
-        await query.edit_message_text(f"Giorno: {u_data['data']}\nScegli l'orario:", reply_markup=InlineKeyboardMarkup(kb))
+        # Orari a due colonne
+        kb = [
+            [InlineKeyboardButton("09:00", callback_data="f_09:00"), InlineKeyboardButton("12:00", callback_data="f_12:00")],
+            [InlineKeyboardButton("15:00", callback_data="f_15:00"), InlineKeyboardButton("18:00", callback_data="f_18:00")],
+            [InlineKeyboardButton("21:00", callback_data="f_21:00"), InlineKeyboardButton("23:00", callback_data="f_23:00")],
+            [InlineKeyboardButton("✍️ Inserisci Orario Manualmente", callback_data="manual_time")],
+            [InlineKeyboardButton("⬅️ Cambia Giorno", callback_data="go_durata")]
+        ]
+        await query.edit_message_text(f"🗓 <b>GIORNO SCELTO: {u_data['data']}</b>\nScegli l'orario di inizio:", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+
+    elif data == "manual_time":
+        u_data['attesa_orario'] = True
+        await query.edit_message_text("✍️ <b>Inserimento Manuale</b>\nScrivi l'orario desiderato (es: 10:30) direttamente in chat.")
 
     elif data.startswith('f_'):
         u_data['fascia'] = data.replace('f_', '')
-        txt = f"✅ RIEPILOGO\nCanali: {len(u_data['sel'])}\nData: {u_data['data']} ({u_data['fascia']})\n💰 Totale: {u_data['prezzo']}€"
-        kb = [[InlineKeyboardButton("✅ INVIA", callback_data="conf")], [InlineKeyboardButton("⬅️ Indietro", callback_data="sel_std")]]
-        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb))
+        txt = (f"✅ <b>RIEPILOGO ORDINE</b>\n\n"
+               f"📢 Canali: {len(u_data['sel'])}\n"
+               f"📅 Data: {u_data['data']}\n"
+               f"🕒 Inizio: {u_data['fascia']}\n"
+               f"💰 <b>Totale: {u_data['prezzo']}€</b>")
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ INVIA", callback_data="conf")]]), parse_mode='HTML')
 
     elif data == "conf":
-        await context.bot.send_message(ADMIN_ID, f"💰 ORDINE @{query.from_user.username}\n{u_data}")
-        await query.edit_message_text("✅ Inviato! Ti contatteremo per il pagamento.")
+        await context.bot.send_message(ADMIN_ID, f"💰 <b>NUOVO ORDINE!</b>\n👤 Da: @{query.from_user.username}\nDettagli: {u_data}", parse_mode='HTML')
+        await query.edit_message_text("✅ <b>Richiesta inviata!</b> Verrai ricontattato a breve.")
 
     elif data == 'back_to_start': await start(update, context)
 
@@ -131,5 +172,6 @@ if __name__ == '__main__':
     Thread(target=run).start()
     bot = ApplicationBuilder().token(TOKEN).build()
     bot.add_handler(CommandHandler('start', start))
-    bot.add_handler(CallbackQueryHandler(gestore))
+    bot.add_handler(CallbackQueryHandler(gestore_callback))
+    bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, gestore_messaggi))
     bot.run_polling()
