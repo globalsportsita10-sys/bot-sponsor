@@ -1,8 +1,3 @@
-
-Vincenzo Paparo
-22:51 (0 minuti fa)
-a me
-
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler
