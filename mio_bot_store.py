@@ -3,8 +3,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
 # --- CONFIGURAZIONE ---
-TOKEN = "IL_TUO_NUOVO_TOKEN"
-ADMIN_ID = 1457338119  # Il tuo ID Telegram
+TOKEN = "8601357271:AAEmVAdioTlrZ5nMAwZgOwM7U-ggmp_flL4"
+ADMIN_ID = 8361466889  # Il tuo ID Telegram
 
 # Simulazione Database (In una versione pro useremo un DB vero)
 # Struttura: { "2024-04-20_09:00": {"user": "@utente", "tipo": "Sponsor", "canale": "Standard"} }
