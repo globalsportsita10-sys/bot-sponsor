@@ -11,23 +11,18 @@ ADMIN_ID = 8361466889
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- I TUOI CANALI REALI ---
+# --- DATI CANALI E PREZZI ---
 CANALI_FISSI = {"Goal": "⚽️ Goal", "Juventus Planet": "🦓 Juventus Planet"}
 CANALI_STR = {f"Streaming {i}": f"🖥 Streaming {i}" for i in range(1, 10)}
 TUTTI_I_CANALI = {**CANALI_FISSI, **CANALI_STR}
 
-# --- LOGICA PREZZI ---
 def calcola_prezzo_totale(u_data):
     sel = u_data.get('sel', [])
     ore = u_data.get('ore', 3)
     tot = 0
-
-    # Prezzi Canali Fissi
     p_fissi = {"Goal": {3: 5, 6: 7.5, 12: 11, 24: 13.5}, "Juventus Planet": {3: 4, 6: 5.5, 12: 8, 24: 12}}
     for c in ["Goal", "Juventus Planet"]:
         if c in sel: tot += p_fissi[c].get(ore, 0)
-
-    # Prezzi Streaming (Scontistica quantità)
     q_str = len([c for c in sel if "Streaming" in c])
     if q_str > 0:
         if q_str == 9: p = {3: 25, 6: 35, 12: 50, 24: 65}
@@ -35,8 +30,6 @@ def calcola_prezzo_totale(u_data):
         elif 3 <= q_str <= 4: p = {3: 15, 6: 20, 12: 35, 24: 45}
         else: p = {3: 6*q_str, 6: 9.5*q_str, 12: 15*q_str, 24: 19.5*q_str}
         tot += p.get(ore, 0)
-
-    # Aggiunte
     if u_data.get('repost'): tot += (3 * len(sel))
     if u_data.get('fissato'): tot += (1 * len(sel))
     return tot
@@ -44,33 +37,35 @@ def calcola_prezzo_totale(u_data):
 # --- TASTIERE ---
 def kb_canali(sel):
     kb = []
-    # Fissi
-    kb.append([InlineKeyboardButton(f"{'✅ ' if c in sel else ''}{name}", callback_data=f"t_{c}") for c in CANALI_FISSI])
-    # Streaming (Griglia)
+    fissi_row = [InlineKeyboardButton(f"{'✅ ' if c in sel else ''}{name}", callback_data=f"t_{c}") for c, name in CANALI_FISSI.items()]
+    kb.append(fissi_row)
     row = []
-    for c, name in CANALI_STR.items():
-        row.append(InlineKeyboardButton(f"{'✅ ' if c in sel else ''}Str {c.split()[-1]}", callback_data=f"t_{c}"))
+    for i in range(1, 10):
+        c_id = f"Streaming {i}"
+        label = f"{'✅ ' if c_id in sel else ''}Str {i}"
+        row.append(InlineKeyboardButton(label, callback_data=f"t_{c_id}"))
         if len(row) == 3: kb.append(row); row = []
     kb.append([InlineKeyboardButton("✨ Seleziona Tutti", callback_data="all_in")])
-    kb.append([InlineKeyboardButton("⬅️ Indietro", callback_data="back"), InlineKeyboardButton("Avanti ➡️", callback_data="go_durata")])
+    kb.append([InlineKeyboardButton("⬅️ Indietro", callback_data="back_start"), InlineKeyboardButton("Avanti ➡️", callback_data="go_durata")])
     return InlineKeyboardMarkup(kb)
 
-# --- SERVER & HANDLERS ---
+# --- SERVER ---
 webapp = Flask('')
 @webapp.route('/')
 def home(): return "Online"
 def run(): webapp.run(host='0.0.0.0', port=10000)
 
+# --- HANDLERS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u_id = update.effective_user.id
     context.user_data.clear()
     kb = [[InlineKeyboardButton("📣 Acquista Sponsor", callback_data='sel_std')],
           [InlineKeyboardButton("🎁 Stato Ordine", callback_data='status'), InlineKeyboardButton("🆘 Assistenza", url='https://t.me/GlobalSportsContatto')]]
-    txt = "👮‍♂️ <b>ADMIN</b>" if u_id == ADMIN_ID else "👋 <b>Benvenuto!</b>"
+    txt = "👮‍♂️ <b>PANNELLO ADMIN</b>" if u_id == ADMIN_ID else "👋 <b>Benvenuto su SoccerHub!</b>"
     if update.callback_query: await update.callback_query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     else: await update.message.reply_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
-async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     u = context.user_data
     await q.answer()
@@ -92,20 +87,15 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("⏱ <b>Scegli la durata:</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     elif q.data.startswith('h_'):
         u['ore'] = int(q.data.replace('h_', ''))
-        u['repost'] = u['fissato'] = False
-        kb = [[InlineKeyboardButton("❌ Repost (+3€)", callback_data="agg_r"), InlineKeyboardButton("❌ Fissato (+1€)", callback_data="agg_f")],
-              [InlineKeyboardButton("🗓 Procedi al Calendario", callback_data="go_cal")]]
-        await q.edit_message_text("➕ <b>AGGIUNTE</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-    elif q.data == "go_cal":
-        # Qui andrebbe la logica calendario a griglia che abbiamo fatto ieri
-        u['data'] = datetime.now().strftime("%d-%m-%Y")
-        u['fascia'] = "18:00"
         costo = calcola_prezzo_totale(u)
-        canali_txt = ", ".join([TUTTI_I_CANALI[c] for c in u['sel']])
-        txt = (f"🛒 <b>IL TUO CARRELLO</b>\n\n🎁 <b>Pacchetto 1</b>\n📢 Canali: {canali_txt}\n🕒 Durata: {u['ore']}h\n💰 <b>Totale: {costo:.2f}€</b>")
-        kb = [[InlineKeyboardButton("✅ PROCEDI", callback_data="fin")]]
-        await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        txt = f"🛒 <b>IL TUO CARRELLO</b>\n\n📢 Canali: {len(u['sel'])}\n⏱ Durata: {u['ore']}h\n💰 <b>Totale: {costo:.2f}€</b>"
+        await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ INVIA", callback_data="fin")]]), parse_mode='HTML')
+    elif q.data == 'back_start': await start(update, context)
 
 if __name__ == '__main__':
     Thread(target=run).start()
-    ApplicationBuilder().token(TOKEN).build().add_handler(CommandHandler('start', start)), ApplicationBuilder().token(TOKEN).build().add_handler(CallbackQueryHandler(callback)).run_polling()
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CallbackQueryHandler(callback_handler))
+    # QUESTA RIGA È STATA CORRETTA
+    app.run_polling()
