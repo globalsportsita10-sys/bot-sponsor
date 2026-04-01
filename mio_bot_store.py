@@ -4,88 +4,98 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Callb
 from flask import Flask
 from threading import Thread
 
-# --- 1. CONFIGURAZIONE E CONTATTI ---
+# --- CONFIGURAZIONE ---
 TOKEN = "8601357271:AAEmVAdioTlrZ5nMAwZgOwM7U-ggmp_flL4"
 ADMIN_ID = 8361466889
-LINK_LISTINO = "https://t.me/listinoSoccerHubOff"
-CONTATTO_ADMIN = "@Calogero7"
-BOT_SUPPORTO = "@SoccerPassionLimitatibot"
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- 2. TASTIERE PRINCIPALI ---
+# --- I TUOI DATI ---
+CANALI_FISSI = {"Goal": "⚽️ Goal", "Juventus Planet": "🦓 Juventus Planet"}
+CANALI_STR = {f"Streaming {i}": f"🖥 Streaming {i}" for i in range(1, 10)}
+TUTTI_I_CANALI = {**CANALI_FISSI, **CANALI_STR}
+
+# --- TASTIERE ---
 def kb_home(u_id):
     kb = [
         [InlineKeyboardButton("📢 Acquista Sponsor", callback_data="buy_sp")],
         [InlineKeyboardButton("📈 Acquista Incrementi", callback_data="buy_inc")],
         [InlineKeyboardButton("🎁 Stato Ordine", callback_data="st_ord"), InlineKeyboardButton("🆘 Assistenza", callback_data="assist")],
-        [InlineKeyboardButton("💰 Listino Prezzi ↗️", url=LINK_LISTINO), InlineKeyboardButton("⚠️ T&C ↗️", callback_data="tc_page")],
-        [InlineKeyboardButton("ℹ️ Come Funziona", callback_data="info_how")]
+        [InlineKeyboardButton("💰 Listino Prezzi ↗️", url="https://t.me/listinoSoccerHubOff")],
+        [InlineKeyboardButton("⚠️ T&C ↗️", callback_data="tc_page"), InlineKeyboardButton("ℹ️ Come Funziona", callback_data="info_how")]
     ]
     if u_id == ADMIN_ID:
         kb.insert(0, [InlineKeyboardButton("👮‍♂️ PANNELLO ADMIN", callback_data="adm_panel")])
     return InlineKeyboardMarkup(kb)
 
-# --- 3. HANDLERS ---
+def kb_canali(sel):
+    buttons = []
+    row_fissi = [InlineKeyboardButton(f"{'✅ ' if c in sel else ''}{n}", callback_data=f"t_{c}") for c, n in CANALI_FISSI.items()]
+    buttons.append(row_fissi)
+    row = []
+    for i in range(1, 10):
+        cid = f"Streaming {i}"
+        row.append(InlineKeyboardButton(f"{'✅ ' if cid in sel else ''}Str {i}", callback_data=f"t_{cid}"))
+        if len(row) == 3: buttons.append(row); row = []
+    buttons.append([InlineKeyboardButton("✨ Seleziona Tutti", callback_data="all_on")])
+    buttons.append([InlineKeyboardButton("⬅️ Indietro", callback_data="back"), InlineKeyboardButton("Avanti ➡️", callback_data="go_h")])
+    return InlineKeyboardMarkup(buttons)
+
+# --- FUNZIONI RISPOSTA ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     u_id = update.effective_user.id
-    txt = "👋 <b>Benvenuto su SoccerHub!</b>\n\n🟢 Il servizio ufficiale per sponsorizzazioni e incremento iscritti sul nostro network di canali dedicati al calcio.\n\n👇 <b>Scegli il servizio di cui hai bisogno:</b>"
-    kb = kb_home(u_id)
+    context.user_data['sel'] = [] # Reset selezione
+    txt = "👋 <b>Benvenuto su SoccerHub!</b>\n\n👇 <b>Scegli il servizio:</b>"
     if update.callback_query:
-        await update.callback_query.edit_message_text(txt, reply_markup=kb, parse_mode='HTML')
+        await update.callback_query.edit_message_text(txt, reply_markup=kb_home(u_id), parse_mode='HTML')
     else:
-        await update.message.reply_text(txt, reply_markup=kb, parse_mode='HTML')
+        await update.message.reply_text(txt, reply_markup=kb_home(u_id), parse_mode='HTML')
 
-async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
+async def gestione_clic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    u_id = update.effective_user.id
+    data = query.data
+    u_data = context.user_data
+    await query.answer() # Rimuove l'icona dell'orologio sul tasto
 
-    # --- SEZIONE COME FUNZIONA (Dal tuo screenshot) ---
-    if q.data == "info_how":
-        txt = (
-            "⚙️ <b>COME FUNZIONA IL BOT</b>\n\n"
-            "Prenotare è semplice e automatizzato. Ecco i passaggi:\n\n"
-            "📢 <b>PER LE SPONSORIZZAZIONI:</b>\n"
-            "1️⃣ <b>Scegli</b> i canali, la durata e le opzioni extra (Repost, Fissato).\n"
-            "2️⃣ <b>Prenota</b> la data e l'orario esatto dal calendario.\n"
-            "3️⃣ <b>Invia</b> il post in chat (<i>ti consigliamo di preparare il post prima con @chelpbot</i>).\n"
-            "4️⃣ <b>Attendi</b> la rapida approvazione dell'amministratore.\n"
-            "5️⃣ <b>Paga</b> in sicurezza. Il post andrà online all'orario stabilito!\n\n"
-            "📈 <b>PER GLI INCREMENTI:</b>\n"
-            "1️⃣ <b>Seleziona</b> il target di iscritti desiderato.\n"
-            "2️⃣ <b>Aggiungi</b> temporaneamente il nostro bot di servizio al tuo canale.\n"
-            "3️⃣ <b>Inoltra</b> un messaggio dal tuo canale a questa chat.\n"
-            "4️⃣ <b>Paga</b> per avviare subito la campagna di crescita.\n\n"
-            "💡 <i>Per problemi o richieste particolari, usa il tasto Assistenza nel menu.</i>"
-        )
-        await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Torna al Menu", callback_data="back")]]), parse_mode='HTML')
-
-    # --- SEZIONE ADMIN (Dal tuo screenshot) ---
-    elif q.data == "adm_panel":
-        txt = "👮‍♂️ <b>PANNELLO ADMIN</b>"
-        kb = [
-            [InlineKeyboardButton("📊 Gestisci Ordini", callback_data="adm_orders")],
-            [InlineKeyboardButton("🌐 Visita Utente", callback_data="adm_user")],
-            [InlineKeyboardButton("⬅️ Indietro", callback_data="back")]
-        ]
-        await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
-
-    elif q.data == "assist":
-        txt = f"🆘 <b>ASSISTENZA E SUPPORTO</b>\n\nHai domande su un <b>ordine</b>, problemi <b>tecnici</b> o vuoi maggiori informazioni? Contatta il nostro team:\n\n👤 Amministratore: {CONTATTO_ADMIN}\n🤖 Bot ufficiale: {BOT_SUPPORTO}\n\n<i>Di solito rispondiamo entro poche ore.</i>"
-        await q.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Torna al Menu", callback_data="back")]]), parse_mode='HTML')
-
-    elif q.data == "back":
+    if data == "back":
         await start(update, context)
 
-# --- 4. SERVER PER RENDER ---
+    elif data == "buy_sp":
+        kb = [[InlineKeyboardButton("🌐 Canale Standard", callback_data="std")],[InlineKeyboardButton("🏴‍☠️ IPTV/Vendita", callback_data="iptv")],[InlineKeyboardButton("⬅️ Indietro", callback_data="back")]]
+        await query.edit_message_text("⚖️ <b>Tipo di contenuto?</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+
+    elif data == "std":
+        u_data['sel'] = u_data.get('sel', [])
+        await query.edit_message_text("👇 <b>Seleziona i canali:</b>", reply_markup=kb_canali(u_data['sel']), parse_mode='HTML')
+
+    elif data.startswith("t_"):
+        canale = data.split("_")[1]
+        u_data['sel'] = u_data.get('sel', [])
+        if canale in u_data['sel']: u_data['sel'].remove(canale)
+        else: u_data['sel'].append(canale)
+        await query.edit_message_reply_markup(reply_markup=kb_canali(u_data['sel']))
+
+    elif data == "assist":
+        txt = "🆘 <b>ASSISTENZA</b>\n\n👤 Admin: @Calogero7\n🤖 Supporto: @SoccerPassionLimitatibot"
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Menu", callback_data="back")]]), parse_mode='HTML')
+
+    elif data == "info_how":
+        txt = "⚙️ <b>COME FUNZIONA</b>\n\n1. Scegli i canali\n2. Prenota data/ora\n3. Invia il post\n4. Paga e vai online!"
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Menu", callback_data="back")]]), parse_mode='HTML')
+
+# --- AVVIO SERVER ---
 webapp = Flask('')
 @webapp.route('/')
-def home(): return "Bot SoccerHub Online"
-def run_flask(): webapp.run(host='0.0.0.0', port=10000)
+def home(): return "Bot Online"
 
 if __name__ == '__main__':
-    Thread(target=run_flask).start()
+    Thread(target=lambda: webapp.run(host='0.0.0.0', port=10000)).start()
     app = ApplicationBuilder().token(TOKEN).build()
+
+    # AGGIUNTA HANDLERS
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CallbackQueryHandler(callback))
+    app.add_handler(CallbackQueryHandler(gestione_clic)) # QUESTA RIGA DEVE ESSERE ESATTAMENTE COSÌ
+
+    print("Bot in ascolto...")
     app.run_polling()
