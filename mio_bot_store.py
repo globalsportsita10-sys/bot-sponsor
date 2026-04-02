@@ -1,132 +1,168 @@
 import asyncio
-import sqlite3
-import random
-import string
 import logging
 import os
-import threading
-from flask import Flask
+import sqlite3
 from datetime import datetime, timedelta
+from threading import Thread
+from flask import Flask
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# --- CONFIGURAZIONE WEB PER RENDER ---
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Bot is Running!"
-
-def run_flask():
-    # LEGGE LA PORTA DA RENDER (DI SOLITO 10000) O USA LA 8080 SE LOCALE
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-# --- CONFIGURAZIONE BOT ---
-API_TOKEN = '8660149890:AAGtywvvWPtDGrnd3RQ6ODz7jBKXbYCafVc'
+# --- CONFIGURAZIONE ---
+TOKEN = "8660149890:AAGtywvvWPtDGrnd3RQ6ODz7jBKXbYCafVc"
 ADMIN_ID = 8361466889
 
-IBAN_DATI = "IT 00 X 00000 00000 000000000000"
-SUMUP_LINK = "https://link.sumup.it/tuolink"
+# --- LISTINO PREZZI ---
+PRICES = {
+    "sponsor_24h": "15€",
+    "sponsor_48h": "25€",
+    "inc_1000": "10€",
+    "inc_5000": "40€"
+}
 
-logging.basicConfig(level=logging.INFO)
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
-scheduler = AsyncIOScheduler()
+# --- STATI PRENOTAZIONE ---
+class Booking(StatesGroup):
+    choosing_service = State()
+    choosing_date = State()
+    choosing_time = State()
+    choosing_payment = State()
+    waiting_screenshot = State()
 
 # --- DATABASE ---
 def init_db():
-    conn = sqlite3.connect('ads_booking.db')
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, joined_date DATETIME)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT, start_time DATETIME, end_time DATETIME, user_id INTEGER)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, price REAL, timestamp DATETIME)''')
+    conn = sqlite3.connect('store.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT)')
     conn.commit()
     conn.close()
 
 init_db()
 
-# --- STATI E DATI ---
-INCREMENTS_PRICES = {"1K": 50, "2K": 80, "3K": 120, "5K": 200}
+# --- SERVER PER RENDER ---
+app = Flask(__name__)
+@app.route('/')
+def home(): return "Bot Online"
 
-class BotStates(StatesGroup):
-    waiting_for_content = State()
-    waiting_for_channels = State()
-    waiting_for_duration = State()
-    waiting_for_extras = State()
-    waiting_for_day = State()
-    waiting_for_time = State()
-    waiting_for_increment_link = State()
-    waiting_for_receipt = State()
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
 
-# --- MENU PRINCIPALE ---
-async def show_main_menu(obj):
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="📢 Acquista Sponsor", callback_data="buy_sponsor"))
-    builder.row(types.InlineKeyboardButton(text="🚀 Acquista Incrementi", callback_data="buy_increment"))
-    builder.row(
-        types.InlineKeyboardButton(text="🔍 Stato Ordine", callback_data="check_status"),
-        types.InlineKeyboardButton(text="📋 Listino Prezzi", url="https://t.me/GlobalSportsSponsor")
-    )
-    builder.row(types.InlineKeyboardButton(text="🆘 Assistenza", url="https://t.me/GlobalSportsContatto"))
-    builder.row(types.InlineKeyboardButton(text="⚙️ Come Funziona", callback_data="how_it_works"))
+bot = Bot(token=TOKEN)
+dp = Dispatcher()
 
-    txt = "👋 **Benvenuto nel Global Advertising Bot!**\n\nSeleziona un'opzione per iniziare."
-    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=builder.as_markup())
-    else: await obj.message.edit_text(txt, reply_markup=builder.as_markup())
+# --- TASTIERE ---
+def main_menu():
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="💎 Sponsor Canale", callback_data="buy_sponsor"))
+    kb.row(types.InlineKeyboardButton(text="📈 Incrementi Social", callback_data="buy_inc"))
+    kb.row(types.InlineKeyboardButton(text="📞 Supporto", url="https://t.me/GlobalSportsContatto"))
+    return kb.as_markup()
 
+def payment_menu():
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="💳 Carta / PayPal", callback_data="pay_paypal"))
+    kb.row(types.InlineKeyboardButton(text="₿ Crypto (LTC/BTC)", callback_data="pay_crypto"))
+    return kb.as_markup()
+
+# --- LOGICA ---
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message, state: FSMContext):
+async def start(message: types.Message):
+    # Salva utente
+    conn = sqlite3.connect('store.db')
+    conn.execute("INSERT OR IGNORE INTO users VALUES (?,?)", (message.from_user.id, message.from_user.username))
+    conn.commit()
+    conn.close()
+
+    if message.from_user.id == ADMIN_ID:
+        kb = InlineKeyboardBuilder()
+        kb.row(types.InlineKeyboardButton(text="📊 Stats", callback_data="admin_stats"))
+        kb.row(types.InlineKeyboardButton(text="🛒 Vista Utente", callback_data="user_view"))
+        await message.answer("🛠 **PANNELLO ADMIN**", reply_markup=kb.as_markup())
+    else:
+        await message.answer(f"👋 Ciao {message.from_user.first_name}!\nBenvenuto in **Global Sports Ads**.\nScegli cosa desideri:", reply_markup=main_menu())
+
+@dp.callback_query(F.data == "buy_sponsor")
+async def process_sponsor(callback: types.CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text=f"Sponsor 24h - {PRICES['sponsor_24h']}", callback_data="set_sponsor_24h"))
+    kb.row(types.InlineKeyboardButton(text=f"Sponsor 48h - {PRICES['sponsor_48h']}", callback_data="set_sponsor_48h"))
+    await callback.message.edit_text("Seleziona la durata dello sponsor:", reply_markup=kb.as_markup())
+    await state.set_state(Booking.choosing_date)
+
+@dp.callback_query(F.data.startswith("set_sponsor"))
+async def process_date(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(service=callback.data, price=PRICES[callback.data.replace("set_", "")])
+
+    # Crea calendario (prossimi 5 giorni)
+    kb = InlineKeyboardBuilder()
+    for i in range(1, 6):
+        date_str = (datetime.now() + timedelta(days=i)).strftime("%d/%m")
+        kb.row(types.InlineKeyboardButton(text=date_str, callback_data=f"date_{date_str}"))
+
+    await callback.message.edit_text("📅 **Seleziona il giorno:**", reply_markup=kb.as_markup())
+    await state.set_state(Booking.choosing_time)
+
+@dp.callback_query(F.data.startswith("date_"))
+async def process_time(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(date=callback.data.replace("date_", ""))
+
+    kb = InlineKeyboardBuilder()
+    ore = ["10:00", "14:00", "18:00", "21:00"]
+    for ora in ore:
+        kb.add(types.InlineKeyboardButton(text=ora, callback_data=f"time_{ora}"))
+
+    await callback.message.edit_text("⏰ **A che ora vuoi pubblicare?**", reply_markup=kb.as_markup())
+    await state.set_state(Booking.choosing_payment)
+
+@dp.callback_query(F.data.startswith("time_"))
+async def process_payment(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(time=callback.data.replace("time_", ""))
+    data = await state.get_data()
+
+    text = (f"📝 **RECAP ORDINE**\n\n"
+            f"🔹 Servizio: {data['service']}\n"
+            f"📅 Data: {data['date']}\n"
+            f"⏰ Ora: {data['time']}\n"
+            f"💰 Totale: {data['price']}\n\n"
+            f"Seleziona il metodo di pagamento:")
+
+    await callback.message.edit_text(text, reply_markup=payment_menu())
+    await state.set_state(Booking.waiting_screenshot)
+
+@dp.callback_query(F.data.startswith("pay_"))
+async def instruct_payment(callback: types.CallbackQuery, state: FSMContext):
+    method = "PayPal/Carta" if "paypal" in callback.data else "Crypto"
+    await callback.message.answer(f"✅ Hai scelto {method}.\n\nInvia il pagamento a: `tuo_account@email.com`\n\n**Dopo aver pagato, invia qui lo SCREENSHOT della ricevuta.**")
+
+@dp.message(Booking.waiting_screenshot, F.photo)
+async def handle_screenshot(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    user = message.from_user
+
+    # Messaggio a TE (ADMIN)
+    admin_text = (f"🚨 **NUOVO ORDINE RICEVUTO!**\n\n"
+                  f"👤 Utente: @{user.username} (ID: {user.id})\n"
+                  f"📦 Servizio: {data['service']}\n"
+                  f"📅 Data: {data['date']} alle {data['time']}\n"
+                  f"💰 Prezzo: {data['price']}\n\n"
+                  f"Controlla lo screenshot qui sopra e conferma!")
+
+    await bot.send_photo(chat_id=ADMIN_ID, photo=message.photo[-1].file_id, caption=admin_text)
+    await message.answer("✅ Ricevuto! L'admin controllerà lo screenshot e ti contatterà a breve.")
     await state.clear()
-    await show_main_menu(message)
 
 @dp.callback_query(F.data == "user_view")
-async def back_home(cb: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    await show_main_menu(cb)
+async def user_view(callback: types.CallbackQuery):
+    await callback.message.answer("Ecco la vista utente:", reply_markup=main_menu())
+    await callback.answer()
 
-# --- FLUSSO INCREMENTI ---
-@dp.callback_query(F.data == "buy_increment")
-async def inc_start(cb: types.CallbackQuery):
-    kb = InlineKeyboardBuilder()
-    for k, v in INCREMENTS_PRICES.items(): kb.row(types.InlineKeyboardButton(text=f"🚀 {k} - {v}€", callback_data=f"inc_{k}"))
-    kb.row(types.InlineKeyboardButton(text="⬅️ Menu", callback_data="user_view"))
-    await cb.message.edit_text("🚀 Scegli il pacchetto:", reply_markup=kb.as_markup())
-
-@dp.callback_query(F.data.startswith("inc_"))
-async def inc_sel(cb: types.CallbackQuery, state: FSMContext):
-    pkg = cb.data.split("_")[1]
-    await state.update_data(pkg=pkg, total=INCREMENTS_PRICES[pkg])
-    await cb.message.edit_text(f"✅ Hai scelto {pkg}.\n\n🔗 Invia il LINK del canale (Assicurati che il bot sia Admin):")
-    await state.set_state(BotStates.waiting_for_increment_link)
-
-@dp.message(BotStates.waiting_for_increment_link)
-async def get_link(msg: types.Message, state: FSMContext):
-    await state.update_data(link=msg.text, causale=f"INC-{msg.from_user.id}")
-    d = await state.get_data()
-    txt = f"💳 **PAGAMENTO**\nImporto: {d['total']}€\nCausale: `{d['causale']}`\n\nIBAN: `{IBAN_DATI}`\n\n📸 Invia lo screenshot della ricevuta:"
-    await msg.answer(txt)
-    await state.set_state(BotStates.waiting_for_receipt)
-
-@dp.message(BotStates.waiting_for_receipt, F.photo)
-async def get_receipt(msg: types.Message, state: FSMContext):
-    d = await state.get_data()
-    await bot.send_photo(ADMIN_ID, msg.photo[-1].file_id, caption=f"📩 **NUOVO ORDINE**\n👤 @{msg.from_user.username}\n💰 {d.get('total')}€\n🔑 Causale: `{d.get('causale')}`")
-    await msg.answer("✅ Ricevuta inviata! L'admin verificherà a breve.")
-    await state.clear()
-
-# --- AVVIO ---
 async def main():
-    # AVVIA FLASK IN UN FILO SEPARATO
-    threading.Thread(target=run_flask, daemon=True).start()
-
-    # AVVIA IL BOT
-    await bot.delete_webhook(drop_pending_updates=True)
+    Thread(target=run_flask).start()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
