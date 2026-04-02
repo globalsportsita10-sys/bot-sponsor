@@ -23,7 +23,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 # --- CONFIGURAZIONE BOT ---
-API_TOKEN = '8513979649:AAHceiZHqQDqU5gRVhILGD2WMC9OfevT7kw'
+API_TOKEN = '8660149890:AAGtywvvWPtDGrnd3RQ6ODz7jBKXbYCafVc'
 ADMIN_ID = 8361466889
 IBAN_DATI = "IT 00 X 00000 00000 000000000000"
 
@@ -86,24 +86,15 @@ async def cmd_start(message: types.Message, state: FSMContext):
     if message.from_user.id == ADMIN_ID: await admin_panel(message)
     else: await main_menu(message)
 
-# ==========================================
-# GESTIONE TASTI MENU PRINCIPALE (FIXATI)
-# ==========================================
 @dp.callback_query(F.data == "how_works")
 async def how_it_works(callback: types.CallbackQuery):
-    txt = ("⚙️ **COME FUNZIONA**\n\n"
-           "1. Scegli tra Sponsor o Incrementi.\n"
-           "2. Seleziona i canali e l'orario.\n"
-           "3. Paga tramite IBAN e invia lo screenshot.\n"
-           "4. Attendi l'approvazione dell'admin!")
+    txt = ("⚙️ **COME FUNZIONA**\n\n1. Scegli tra Sponsor o Incrementi.\n2. Seleziona i canali e l'orario.\n3. Paga tramite IBAN e invia lo screenshot.\n4. Attendi l'approvazione!")
     kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"))
     await callback.message.edit_text(txt, reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data == "order_status")
 async def check_status(callback: types.CallbackQuery):
-    txt = ("🔍 **STATO ORDINE**\n\n"
-           "Non ci sono ordini attivi al momento.\n"
-           "Se hai inviato una ricevuta, l'admin la sta controllando.")
+    txt = ("🔍 **STATO ORDINE**\n\nNon ci sono ordini attivi al momento.\nSe hai inviato una ricevuta, l'admin la sta controllando.")
     kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"))
     await callback.message.edit_text(txt, reply_markup=kb.as_markup())
 
@@ -175,8 +166,7 @@ async def step_ex(obj, state):
     kb.row(types.InlineKeyboardButton(text=f"📌 Fissato (+1€) {'✅' if 'fissato' in ex else '❌'}", callback_data="ex_fissato"))
     kb.row(types.InlineKeyboardButton(text=f"🔄 Repost (+3€) {'✅' if 'repost' in ex else '❌'}", callback_data="ex_repost"))
     kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="go_dur"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_date"))
-    txt = "✨ **Aggiunte Extra:**"
-    await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+    await obj.message.edit_text("✨ **Aggiunte Extra:**", reply_markup=kb.as_markup())
     await state.set_state(Flow.extras)
 
 @dp.callback_query(Flow.extras, F.data.startswith("ex_"))
@@ -202,7 +192,9 @@ async def step_time(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(date=callback.data.replace("dt_", ""))
     kb = InlineKeyboardBuilder()
     for t in ["09:00", "12:00", "15:00", "18:00"]: kb.add(types.InlineKeyboardButton(text=t, callback_data=f"tm_{t}"))
-    kb.adjust(2); kb.row(types.InlineKeyboardButton(text="✍️ Personalizzata", callback_data="tm_custom"))
+    kb.adjust(2)
+    kb.row(types.InlineKeyboardButton(text="✍️ Personalizzata", callback_data="tm_custom"))
+    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="go_date")) # AGGIUNTO BOTTONE INDIETRO
     await callback.message.edit_text("⏰ **Orario di inizio:**", reply_markup=kb.as_markup())
     await state.set_state(Flow.start_time)
 
@@ -221,7 +213,7 @@ async def send_final_recap(message, state):
     recap = (f"🛒 **RIEPILOGO ORDINE**\n\n📺 Canali: {len(data['channels'])}\n⏳ Durata: {data['duration']}h\n"
              f"⏰ Inizio: {data['start_time']}\n📅 Data: {data['date']}\n✨ Extra: {', '.join(data.get('extras', []))}\n\n💰 **TOTALE: {total}€**")
     kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="💳 Paga Ora", callback_data="pay_now"))
-    await message.answer(recap, reply_markup=kb.as_markup())
+    await message.edit_text(recap, reply_markup=kb.as_markup()) # MODIFICATO IN EDIT_TEXT
     await state.set_state(Flow.receipt)
 
 @dp.message(Flow.start_time)
@@ -229,7 +221,7 @@ async def manual_tm(message: types.Message, state: FSMContext):
     await state.update_data(start_time=message.text); await send_final_recap(message, state)
 
 # ==========================================
-# INCREMENTI, ADMIN E PAGAMENTI
+# INCREMENTI E PAGAMENTI
 # ==========================================
 @dp.callback_query(F.data == "buy_increment")
 async def step_inc(callback: types.CallbackQuery, state: FSMContext):
@@ -255,7 +247,10 @@ async def handle_inc_link(message: types.Message, state: FSMContext):
 async def pay_info(callback: types.CallbackQuery, state: FSMContext):
     cau = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
     await state.update_data(causale_code=cau)
-    await callback.message.edit_text(f"💳 **PAGAMENTO**\n\nIBAN: `{IBAN_DATI}`\nCausale: `ADV-{cau}`\n\n📸 **Invia lo screenshot della ricevuta!**")
+    txt = (f"💳 **PAGAMENTO**\n\nIBAN: `{IBAN_DATI}`\nCausale: `ADV-{cau}`\n\n📸 **Invia lo screenshot della ricevuta!**")
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main")) # AGGIUNTO ANNULLA
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup()) # MODIFICA IL MESSAGGIO ESISTENTE
     await state.set_state(Flow.receipt)
 
 @dp.message(Flow.receipt, F.photo)
@@ -270,9 +265,8 @@ async def admin_panel(obj):
     kb = InlineKeyboardBuilder()
     kb.row(types.InlineKeyboardButton(text="📅 Prenotazioni", callback_data="admin_list"))
     kb.row(types.InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_bc"))
-    txt = "🛠 **PANNELLO ADMIN**"
-    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
-    else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+    if isinstance(obj, types.Message): await obj.answer("🛠 **PANNELLO ADMIN**", reply_markup=kb.as_markup())
+    else: await obj.message.edit_text("🛠 **PANNELLO ADMIN**", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data.startswith("adm_ok_"))
 async def admin_approve(callback: types.CallbackQuery):
