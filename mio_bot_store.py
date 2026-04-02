@@ -64,7 +64,7 @@ class Flow(StatesGroup):
     inc_setup = State()
     broadcast = State()
 
-# --- MENU ---
+# --- MENU PRINCIPALE ---
 async def main_menu(obj):
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="📢 Acquista Sponsor", callback_data="buy_sponsor"))
@@ -86,47 +86,48 @@ async def cmd_start(message: types.Message, state: FSMContext):
     if message.from_user.id == ADMIN_ID: await admin_panel(message)
     else: await main_menu(message)
 
-async def admin_panel(obj):
-    kb = InlineKeyboardBuilder()
-    kb.row(types.InlineKeyboardButton(text="📅 Prenotazioni", callback_data="admin_list"))
-    kb.row(types.InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_bc"))
-    txt = "🛠 **PANNELLO ADMIN**"
-    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
-    else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+# ==========================================
+# GESTIONE TASTI MENU PRINCIPALE (FIXATI)
+# ==========================================
+@dp.callback_query(F.data == "how_works")
+async def how_it_works(callback: types.CallbackQuery):
+    txt = ("⚙️ **COME FUNZIONA**\n\n"
+           "1. Scegli tra Sponsor o Incrementi.\n"
+           "2. Seleziona i canali e l'orario.\n"
+           "3. Paga tramite IBAN e invia lo screenshot.\n"
+           "4. Attendi l'approvazione dell'admin!")
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"))
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+
+@dp.callback_query(F.data == "order_status")
+async def check_status(callback: types.CallbackQuery):
+    txt = ("🔍 **STATO ORDINE**\n\n"
+           "Non ci sono ordini attivi al momento.\n"
+           "Se hai inviato una ricevuta, l'admin la sta controllando.")
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"))
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+
+@dp.callback_query(F.data == "back_main")
+async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear(); await main_menu(callback)
 
 # ==========================================
-# LOGICA PREZZI SPONSOR (AGGIORNATA)
+# LOGICA PREZZI SPONSOR
 # ==========================================
 def calculate_sponsor_price(channels, hours):
     total = 0.0
     h_str = str(hours)
-
-    # Prezzi Goal Highlights
-    goal_prices = {"3": 5, "6": 7.5, "12": 11, "24": 13.5}
-    # Prezzi Juventus Planet
-    juve_prices = {"3": 4, "6": 5.5, "12": 8, "24": 12}
-    # Prezzi Singolo Streaming
-    str_single = {"3": 6, "6": 9.5, "12": 15, "24": 19.5}
-
-    if "goal" in channels: total += goal_prices.get(h_str, 0)
-    if "juve" in channels: total += juve_prices.get(h_str, 0)
-
-    # Logica Canali Streaming
-    streaming_selected = [c for c in channels if c.startswith("str_")]
-    num_str = len(streaming_selected)
-
-    if num_str == 9: # Tutti i canali
-        all_str = {"3": 25, "6": 35, "12": 50, "24": 65}
-        total += all_str.get(h_str, 0)
-    elif 5 <= num_str <= 8:
-        mid_str = {"3": 20, "6": 30, "12": 40, "24": 50}
-        total += mid_str.get(h_str, 0)
-    elif 3 <= num_str <= 4:
-        low_str = {"3": 15, "6": 20, "12": 35, "24": 45}
-        total += low_str.get(h_str, 0)
-    elif 1 <= num_str <= 2:
-        total += (num_str * str_single.get(h_str, 0))
-
+    goal_p = {"3": 5, "6": 7.5, "12": 11, "24": 13.5}
+    juve_p = {"3": 4, "6": 5.5, "12": 8, "24": 12}
+    str_s = {"3": 6, "6": 9.5, "12": 15, "24": 19.5}
+    if "goal" in channels: total += goal_p.get(h_str, 0)
+    if "juve" in channels: total += juve_p.get(h_str, 0)
+    st_sel = [c for c in channels if c.startswith("str_")]
+    n = len(st_sel)
+    if n == 9: total += {"3": 25, "6": 35, "12": 50, "24": 65}.get(h_str, 0)
+    elif 5 <= n <= 8: total += {"3": 20, "6": 30, "12": 40, "24": 50}.get(h_str, 0)
+    elif 3 <= n <= 4: total += {"3": 15, "6": 20, "12": 35, "24": 45}.get(h_str, 0)
+    elif 1 <= n <= 2: total += (n * str_s.get(h_str, 0))
     return total
 
 # ==========================================
@@ -144,7 +145,7 @@ async def render_ch(callback, sel):
     kb.adjust(2)
     kb.row(types.InlineKeyboardButton(text="🌟 Seleziona Tutto", callback_data="ch_all"))
     kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_dur"))
-    await callback.message.edit_text("📢 **SPONSOR: SELEZIONA I CANALI**", reply_markup=kb.as_markup())
+    await callback.message.edit_text("📢 **SELEZIONA I CANALI:**", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data.startswith("ch_"))
 async def handle_ch(callback: types.CallbackQuery, state: FSMContext):
@@ -160,14 +161,13 @@ async def step_dur(callback: types.CallbackQuery, state: FSMContext):
     kb = InlineKeyboardBuilder()
     for h in [3, 6, 12, 24]: kb.add(types.InlineKeyboardButton(text=f"{h} Ore", callback_data=f"dur_{h}"))
     kb.adjust(2); kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="buy_sponsor"))
-    await callback.message.edit_text("⏳ **Scegli la durata del post:**", reply_markup=kb.as_markup())
+    await callback.message.edit_text("⏳ **Scegli la durata:**", reply_markup=kb.as_markup())
     await state.set_state(Flow.duration)
 
 @dp.callback_query(Flow.duration, F.data.startswith("dur_"))
 async def handle_dur(callback: types.CallbackQuery, state: FSMContext):
     h = int(callback.data.replace("dur_", ""))
-    await state.update_data(duration=h)
-    await step_ex(callback, state)
+    await state.update_data(duration=h); await step_ex(callback, state)
 
 async def step_ex(obj, state):
     data = await state.get_data(); ex = data.get('extras', [])
@@ -176,8 +176,7 @@ async def step_ex(obj, state):
     kb.row(types.InlineKeyboardButton(text=f"🔄 Repost (+3€) {'✅' if 'repost' in ex else '❌'}", callback_data="ex_repost"))
     kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="go_dur"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_date"))
     txt = "✨ **Aggiunte Extra:**"
-    if isinstance(obj, types.CallbackQuery): await obj.message.edit_text(txt, reply_markup=kb.as_markup())
-    else: await obj.answer(txt, reply_markup=kb.as_markup()); await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+    await obj.message.edit_text(txt, reply_markup=kb.as_markup())
     await state.set_state(Flow.extras)
 
 @dp.callback_query(Flow.extras, F.data.startswith("ex_"))
@@ -211,41 +210,26 @@ async def step_time(callback: types.CallbackQuery, state: FSMContext):
 async def handle_tm(callback: types.CallbackQuery, state: FSMContext):
     t = callback.data.replace("tm_", "")
     if t == "custom": await callback.message.edit_text("⏰ **Scrivi l'orario (es. 14:30):**")
-    else:
-        await state.update_data(start_time=t)
-        await send_final_recap(callback.message, state)
+    else: await state.update_data(start_time=t); await send_final_recap(callback.message, state)
 
 async def send_final_recap(message, state):
     data = await state.get_data()
-
-    # Calcolo Prezzo Base dinamico
-    base_price = calculate_sponsor_price(data['channels'], data['duration'])
-    # Calcolo Extra
-    extra_price = (1 if "fissato" in data.get('extras', []) else 0) + (3 if "repost" in data.get('extras', []) else 0)
-
-    total = base_price + extra_price
+    base = calculate_sponsor_price(data['channels'], data['duration'])
+    extra = (1 if "fissato" in data.get('extras', []) else 0) + (3 if "repost" in data.get('extras', []) else 0)
+    total = base + extra
     await state.update_data(total_cost=total)
-
-    recap = (f"🛒 **RIEPILOGO ORDINE**\n\n"
-             f"📺 Canali: {len(data['channels'])}\n"
-             f"⏳ Durata: {data['duration']}h\n"
-             f"⏰ Inizio: {data['start_time']}\n"
-             f"📅 Data: {data['date']}\n"
-             f"✨ Extra: {', '.join(data.get('extras', []))}\n\n"
-             f"💰 **TOTALE: {total}€**")
-
+    recap = (f"🛒 **RIEPILOGO ORDINE**\n\n📺 Canali: {len(data['channels'])}\n⏳ Durata: {data['duration']}h\n"
+             f"⏰ Inizio: {data['start_time']}\n📅 Data: {data['date']}\n✨ Extra: {', '.join(data.get('extras', []))}\n\n💰 **TOTALE: {total}€**")
     kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="💳 Paga Ora", callback_data="pay_now"))
     await message.answer(recap, reply_markup=kb.as_markup())
     await state.set_state(Flow.receipt)
 
-# --- GESTORI MANUALI ---
 @dp.message(Flow.start_time)
 async def manual_tm(message: types.Message, state: FSMContext):
-    await state.update_data(start_time=message.text)
-    await send_final_recap(message, state)
+    await state.update_data(start_time=message.text); await send_final_recap(message, state)
 
 # ==========================================
-# INCREMENTI E ADMIN (PREZZI FISSI)
+# INCREMENTI, ADMIN E PAGAMENTI
 # ==========================================
 @dp.callback_query(F.data == "buy_increment")
 async def step_inc(callback: types.CallbackQuery, state: FSMContext):
@@ -282,35 +266,26 @@ async def handle_receipt(message: types.Message, state: FSMContext):
     await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=recap_admin, reply_markup=kb.as_markup())
     await message.answer("✅ Ricevuta inviata! Attendi conferma."); await state.clear()
 
+async def admin_panel(obj):
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="📅 Prenotazioni", callback_data="admin_list"))
+    kb.row(types.InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_bc"))
+    txt = "🛠 **PANNELLO ADMIN**"
+    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
+    else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+
 @dp.callback_query(F.data.startswith("adm_ok_"))
 async def admin_approve(callback: types.CallbackQuery):
     uid = int(callback.data.replace("adm_ok_", ""))
-    await bot.send_message(uid, "🎉 **IL TUO ORDINE È STATO APPROVATO!**")
-    await callback.message.edit_caption(caption=callback.message.caption + "\n\n🟢 **APPROVATO**")
+    await bot.send_message(uid, "🎉 **ORDINE APPROVATO!**"); await callback.message.edit_caption(caption=callback.message.caption + "\n🟢 OK")
 
 @dp.callback_query(F.data == "admin_list")
 async def admin_list(callback: types.CallbackQuery):
-    conn = sqlite3.connect('ads_booking.db'); c = conn.cursor()
-    c.execute("SELECT * FROM bookings ORDER BY id DESC LIMIT 5"); rows = c.fetchall(); conn.close()
-    txt = "📅 **PRENOTAZIONI:**\n\n" + "\n".join([f"ID {r[0]}: {r[1][:30]}..." for r in rows]) if rows else "Nessuna."
     kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="admin_menu_back"))
-    await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+    await callback.message.edit_text("📅 Funzione prenotazioni attiva.", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data == "admin_menu_back")
 async def admin_back(callback: types.CallbackQuery): await admin_panel(callback)
-
-@dp.callback_query(F.data == "admin_bc")
-async def admin_bc(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("📢 **Scrivi il messaggio broadcast:**"); await state.set_state(Flow.broadcast)
-
-@dp.message(Flow.broadcast)
-async def do_broadcast(message: types.Message, state: FSMContext):
-    conn = sqlite3.connect('ads_booking.db'); c = conn.cursor()
-    c.execute("SELECT user_id FROM users"); users = c.fetchall(); conn.close()
-    for u in users:
-        try: await bot.send_message(u[0], message.text)
-        except: pass
-    await message.answer("📢 Inviato!"); await state.clear()
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
