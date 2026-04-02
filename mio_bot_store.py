@@ -16,105 +16,80 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 # --- CONFIGURAZIONE WEB PER RENDER ---
 app = Flask(__name__)
-
 @app.route('/')
-def home():
-    return "Bot is Running!"
-
+def home(): return "Bot is Running!"
 def run_flask():
-    # Porta impostata a 10000 come richiesto
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
 # --- CONFIGURAZIONE BOT ---
-API_TOKEN = '8660149890:AAGtywvvWPtDGrnd3RQ6ODz7jBKXbYCafVc'
+API_TOKEN = '8513979649:AAHceiZHqQDqU5gRVhILGD2WMC9OfevT7kw' # <-- METTI IL TOKEN GIUSTO QUI
 ADMIN_ID = 8361466889
-
 IBAN_DATI = "IT 00 X 00000 00000 000000000000"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
+dp = Dispatcher(storage=MemoryStorage())
 
-# --- DATABASE INIT ---
-def init_db():
-    conn = sqlite3.connect('ads_booking.db')
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, joined_date DATETIME)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT, start_time DATETIME, end_time DATETIME, user_id INTEGER)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, price REAL, timestamp DATETIME)''')
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# --- DATI CANALI E PREZZI ---
+# --- DATI ---
 CHANNELS_DATA = {
-    "goal": {"name": "Goal Highlights ⚽️", "id": "GOAL_ID"},
-    "juve": {"name": "Juventus Planet ⚪️⚫️", "id": "JUVE_ID"},
+    "goal": {"name": "Goal Highlights ⚽️", "price_per_h": 2.0},
+    "juve": {"name": "Juventus Planet ⚪️⚫️", "price_per_h": 1.5},
 }
 for i in range(1, 10):
-    CHANNELS_DATA[f"str_{i}"] = {"name": f"Streaming {i} 📺", "id": f"STR{i}_ID"}
+    CHANNELS_DATA[f"str_{i}"] = {"name": f"Streaming {i} 📺", "price_per_h": 1.0}
+
+EXTRAS_DATA = {
+    "pin": {"name": "📌 Pin nel Canale", "price": 5},
+    "nodel": {"name": "🚫 Nessuna Eliminazione", "price": 10}
+}
 
 INCREMENTS_PRICES = {"1K": 50, "2K": 80, "3K": 120, "5K": 200}
 
 # --- STATI FSM ---
-class BotStates(StatesGroup):
-    waiting_for_content = State()
-    waiting_for_channels = State()
-    waiting_for_duration = State()
-    waiting_for_date = State()
-    waiting_for_time = State()
-    waiting_for_increment_link = State()
-    waiting_for_receipt = State()
+class SponsorFlow(StatesGroup):
+    channels = State()
+    duration = State()
+    custom_duration = State()
+    extras = State()
+    date = State()
+    start_time = State()
+    custom_time = State()
+    receipt = State()
 
-# --- FUNZIONI UTILS ---
+# --- UTILS ---
 def generate_causale(user_id):
     rc = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
     return f"ADV-{user_id}-{rc}"
 
-def calculate_total(selected_keys, hours):
-    total = 0
-    str_count = sum(1 for k in selected_keys if "str_" in k)
-    prices_str = {3: 6, 6: 9.5, 12: 15, 24: 19.5}
-
-    if str_count == 9: total += {3: 25, 6: 35, 12: 50, 24: 65}[hours]
-    elif 5 <= str_count <= 8: total += {3: 20, 6: 30, 12: 40, 24: 50}[hours]
-    elif 3 <= str_count <= 4: total += {3: 15, 6: 20, 12: 35, 24: 45}[hours]
-    else: total += (str_count * prices_str[hours])
-
-    if "goal" in selected_keys: total += {3: 5, 6: 7.5, 12: 11, 24: 13.5}[hours]
-    if "juve" in selected_keys: total += {3: 4, 6: 5.5, 12: 8, 24: 12}[hours]
-    return total
+def calc_total(data):
+    # Calcolo base: (Prezzo canali * ore) + Extras
+    tot = 0
+    hours = int(data.get('duration', 0))
+    for ch in data.get('channels', []):
+        tot += CHANNELS_DATA[ch]['price_per_h'] * hours
+    for ex in data.get('extras', []):
+        tot += EXTRAS_DATA[ex]['price']
+    return tot
 
 # --- MENU PRINCIPALE ---
-async def show_main_menu(message_or_call):
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="📢 Acquista Sponsor", callback_data="buy_sponsor"))
-    builder.row(types.InlineKeyboardButton(text="🚀 Acquista Incrementi", callback_data="buy_increment"))
-    builder.row(
-        types.InlineKeyboardButton(text="🔍 Stato Ordine", callback_data="check_status"),
-        types.InlineKeyboardButton(text="📋 Listino", url="https://t.me/GlobalSportsSponsor")
-    )
-    builder.row(types.InlineKeyboardButton(text="🆘 Assistenza", url="https://t.me/GlobalSportsContatto"))
+async def show_main_menu(obj):
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="📢 Acquista Sponsor", callback_data="buy_sponsor"))
+    kb.row(types.InlineKeyboardButton(text="🚀 Acquista Incrementi", callback_data="buy_increment"))
+    kb.row(types.InlineKeyboardButton(text="🆘 Assistenza", url="https://t.me/GlobalSportsContatto"))
 
-    text = "👋 **Benvenuto nel Global Advertising Bot!**\nScegli un'opzione qui sotto:"
+    txt = "👋 **Benvenuto nel Global Advertising Bot!**\nScegli un'opzione:"
+    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
+    else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
 
-    if isinstance(message_or_call, types.Message):
-        await message_or_call.answer(text, reply_markup=builder.as_markup())
-    else:
-        await message_or_call.message.edit_text(text, reply_markup=builder.as_markup())
-
-# --- HANDLERS ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     if message.from_user.id == ADMIN_ID:
-        builder = InlineKeyboardBuilder()
-        builder.row(types.InlineKeyboardButton(text="📊 Statistiche", callback_data="admin_stats"))
-        builder.row(types.InlineKeyboardButton(text="🛒 Vista Utente", callback_data="user_view"))
-        await message.answer("🛠 **PANNELLO ADMIN**", reply_markup=builder.as_markup())
+        kb = InlineKeyboardBuilder()
+        kb.row(types.InlineKeyboardButton(text="🛒 Vista Utente", callback_data="user_view"))
+        await message.answer("🛠 **PANNELLO ADMIN**", reply_markup=kb.as_markup())
     else:
         await show_main_menu(message)
 
@@ -123,98 +98,233 @@ async def user_view(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await show_main_menu(callback)
 
-# --- LOGICA SPONSOR ---
+# ==========================================
+# FLUSSO SPONSOR
+# ==========================================
+
+# 1. CANALI
 @dp.callback_query(F.data == "buy_sponsor")
-async def sponsor_init(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("📝 Invia il post da sponsorizzare (Testo, Foto o Video):")
-    await state.set_state(BotStates.waiting_for_content)
+async def sp_step1_channels(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(channels=[])
+    await render_channels(callback, [])
+    await state.set_state(SponsorFlow.channels)
 
-@dp.message(BotStates.waiting_for_content)
-async def get_content(message: types.Message, state: FSMContext):
-    await state.update_data(msg_id=message.message_id, sel_chans=[])
-    await show_chan_sel(message, [])
-    await state.set_state(BotStates.waiting_for_channels)
-
-async def show_chan_sel(msg, sel):
-    builder = InlineKeyboardBuilder()
+async def render_channels(callback, sel_chans):
+    kb = InlineKeyboardBuilder()
     for k, v in CHANNELS_DATA.items():
-        builder.row(types.InlineKeyboardButton(text=f"{'✅' if k in sel else '◻️'} {v['name']}", callback_data=f"sel_{k}"))
-    if sel:
-        builder.row(types.InlineKeyboardButton(text="➡️ Prosegui", callback_data="chans_ok"))
+        kb.row(types.InlineKeyboardButton(text=f"{'✅' if k in sel_chans else '◻️'} {v['name']}", callback_data=f"ch_{k}"))
 
-    text = "📺 **Seleziona i canali:**"
-    if isinstance(msg, types.Message):
-        await msg.answer(text, reply_markup=builder.as_markup())
+    kb.row(types.InlineKeyboardButton(text="✅ Seleziona Tutti", callback_data="ch_all"))
+    kb.row(
+        types.InlineKeyboardButton(text="⬅️ Menu", callback_data="user_view"),
+        types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_dur")
+    )
+    txt = "📺 **PASSO 1: Scegli i Canali**\nSeleziona dove vuoi pubblicare:"
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+
+@dp.callback_query(SponsorFlow.channels, F.data.startswith("ch_"))
+async def handle_channels(callback: types.CallbackQuery, state: FSMContext):
+    action = callback.data.replace("ch_", "")
+    data = await state.get_data()
+    sel = data.get('channels', [])
+
+    if action == "all":
+        sel = list(CHANNELS_DATA.keys())
+    elif action in sel:
+        sel.remove(action)
     else:
-        await msg.message.edit_reply_markup(reply_markup=builder.as_markup())
+        sel.append(action)
 
-@dp.callback_query(F.data.startswith("sel_"), BotStates.waiting_for_channels)
-async def toggle_ch(callback: types.CallbackQuery, state: FSMContext):
-    k = callback.data.split("_")[1]
+    await state.update_data(channels=sel)
+    await render_channels(callback, sel)
+
+# 2. DURATA ORE
+@dp.callback_query(SponsorFlow.channels, F.data == "go_dur")
+async def sp_step2_duration(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    sel = data.get('sel_chans', [])
-    if k in sel: sel.remove(k)
-    else: sel.append(k)
-    await state.update_data(sel_chans=sel)
-    await show_chan_sel(callback, sel)
+    if not data.get('channels'):
+        return await callback.answer("⚠️ Seleziona almeno un canale!", show_alert=True)
 
-@dp.callback_query(F.data == "chans_ok", BotStates.waiting_for_channels)
-async def dur_sel(callback: types.CallbackQuery, state: FSMContext):
-    builder = InlineKeyboardBuilder()
+    kb = InlineKeyboardBuilder()
     for h in [3, 6, 12, 24]:
-        builder.add(types.InlineKeyboardButton(text=f"{h}h", callback_data=f"h_{h}"))
-    await callback.message.edit_text("⏳ **Scegli la durata della permanenza:**", reply_markup=builder.as_markup())
-    await state.set_state(BotStates.waiting_for_duration)
+        kb.add(types.InlineKeyboardButton(text=f"{h} Ore", callback_data=f"dur_{h}"))
+    kb.adjust(2)
+    kb.row(types.InlineKeyboardButton(text="✍️ Ore Personalizzate", callback_data="dur_custom"))
+    kb.row(
+        types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="buy_sponsor"),
+        types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_extras")
+    )
 
-@dp.callback_query(F.data.startswith("h_"), BotStates.waiting_for_duration)
-async def time_sel_start(callback: types.CallbackQuery, state: FSMContext):
-    h = int(callback.data.split("_")[1])
+    txt = f"⏳ **PASSO 2: Durata**\nHai scelto {len(data['channels'])} canali.\nSeleziona o scrivi quante ore deve rimanere il post:"
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+    await state.set_state(SponsorFlow.duration)
+
+@dp.callback_query(SponsorFlow.duration, F.data.startswith("dur_"))
+async def handle_dur(callback: types.CallbackQuery, state: FSMContext):
+    val = callback.data.replace("dur_", "")
+    if val == "custom":
+        await callback.message.edit_text("✍️ **Scrivi in chat il numero di ore** (es: 48):")
+        await state.set_state(SponsorFlow.custom_duration)
+    else:
+        await state.update_data(duration=int(val))
+        await callback.answer(f"✅ Impostato a {val} ore")
+
+@dp.message(SponsorFlow.custom_duration)
+async def handle_custom_dur(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        return await message.answer("⚠️ Inserisci solo un numero valido (es: 48).")
+    await state.update_data(duration=int(message.text))
+    # Riporta al menu durata ma aggiornato (simuliamo bottone avanti)
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_extras"))
+    await message.answer(f"✅ Hai impostato {message.text} ore.\nClicca Avanti per procedere:", reply_markup=kb.as_markup())
+    await state.set_state(SponsorFlow.duration)
+
+# 3. AGGIUNTE (EXTRAS)
+@dp.callback_query(SponsorFlow.duration, F.data == "go_extras")
+async def sp_step3_extras(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    tot = calculate_total(data['sel_chans'], h)
-    cau = generate_causale(callback.from_user.id)
-    await state.update_data(total=tot, causale=cau, hours=h)
+    if 'duration' not in data:
+        return await callback.answer("⚠️ Scegli prima la durata!", show_alert=True)
 
-    await callback.message.answer(f"💳 **PAGAMENTO**\n\nImporto: **{tot}€**\nCausale: `{cau}`\n\nIBAN: `{IBAN_DATI}`\n\n📸 Invia lo screenshot della ricevuta:")
-    await state.set_state(BotStates.waiting_for_receipt)
+    if 'extras' not in data: await state.update_data(extras=[])
+    data = await state.get_data() # ricarica
+    await render_extras(callback, data.get('extras', []))
+    await state.set_state(SponsorFlow.extras)
 
-# --- GESTIONE RICEVUTA ---
-@dp.message(BotStates.waiting_for_receipt, F.photo)
-async def receipt_received(message: types.Message, state: FSMContext):
+async def render_extras(callback, sel_extras):
+    kb = InlineKeyboardBuilder()
+    for k, v in EXTRAS_DATA.items():
+        kb.row(types.InlineKeyboardButton(text=f"{'✅' if k in sel_extras else '◻️'} {v['name']} (+{v['price']}€)", callback_data=f"ex_{k}"))
+
+    kb.row(
+        types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="go_dur"), # Torna a durata (bisognerà gestire il ricaricamento)
+        types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_date")
+    )
+    await callback.message.edit_text("✨ **PASSO 3: Aggiunte (Opzionale)**\nVuoi dei servizi extra?", reply_markup=kb.as_markup())
+
+@dp.callback_query(SponsorFlow.extras, F.data.startswith("ex_"))
+async def handle_extras(callback: types.CallbackQuery, state: FSMContext):
+    action = callback.data.replace("ex_", "")
     data = await state.get_data()
-    user = message.from_user
+    sel = data.get('extras', [])
+    if action in sel: sel.remove(action)
+    else: sel.append(action)
+    await state.update_data(extras=sel)
+    await render_extras(callback, sel)
 
-    admin_txt = (f"🚨 **NUOVO ORDINE**\n\n"
-                 f"👤 Utente: @{user.username}\n"
-                 f"💰 Totale: {data['total']}€\n"
-                 f"🔑 Causale: `{data['causale']}`\n"
-                 f"📦 Servizio: {data.get('inc_pkg', 'Sponsor')}")
+# 4. DATA
+@dp.callback_query(SponsorFlow.extras, F.data == "go_date")
+async def sp_step4_date(callback: types.CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardBuilder()
+    for i in range(0, 5):
+        d = (datetime.now() + timedelta(days=i)).strftime("%d/%m/%Y")
+        kb.add(types.InlineKeyboardButton(text=d, callback_data=f"dt_{d}"))
+    kb.adjust(2)
+    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="go_extras_back"))
+    await callback.message.edit_text("📅 **PASSO 4: Data**\nScegli il giorno della pubblicazione:", reply_markup=kb.as_markup())
+    await state.set_state(SponsorFlow.date)
 
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="✅ Approva", callback_data=f"ap_{user.id}"))
-    builder.row(types.InlineKeyboardButton(text="❌ Rifiuta", callback_data=f"re_{user.id}"))
+@dp.callback_query(F.data == "go_extras_back") # Helper per tornare indietro
+async def back_to_ex(callback: types.CallbackQuery, state: FSMContext):
+    await sp_step3_extras(callback, state)
 
-    await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=admin_txt, reply_markup=builder.as_markup())
-    await message.answer("✅ Ricevuta inviata! L'admin confermerà a breve.")
+@dp.callback_query(SponsorFlow.date, F.data.startswith("dt_"))
+async def handle_date(callback: types.CallbackQuery, state: FSMContext):
+    dt = callback.data.replace("dt_", "")
+    await state.update_data(date=dt)
+
+    # 5. ORA DI INIZIO
+    kb = InlineKeyboardBuilder()
+    for t in ["10:00", "14:00", "18:00", "21:00"]:
+        kb.add(types.InlineKeyboardButton(text=t, callback_data=f"tm_{t}"))
+    kb.adjust(2)
+    kb.row(types.InlineKeyboardButton(text="✍️ Ora Personalizzata", callback_data="tm_custom"))
+    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="go_date"))
+
+    await callback.message.edit_text("⏰ **PASSO 5: Ora di inizio**\nA che ora pubblichiamo?", reply_markup=kb.as_markup())
+    await state.set_state(SponsorFlow.start_time)
+
+@dp.callback_query(SponsorFlow.start_time, F.data.startswith("tm_"))
+async def handle_time(callback: types.CallbackQuery, state: FSMContext):
+    val = callback.data.replace("tm_", "")
+    if val == "custom":
+        await callback.message.edit_text("✍️ **Scrivi in chat l'orario** (es: 15:30):")
+        await state.set_state(SponsorFlow.custom_time)
+    else:
+        await state.update_data(start_time=val)
+        await show_cart(callback, state)
+
+@dp.message(SponsorFlow.custom_time)
+async def handle_custom_time(message: types.Message, state: FSMContext):
+    await state.update_data(start_time=message.text)
+    # Mostriamo direttamente il carrello passando il message come se fosse la callback
+    await show_cart(message, state)
+
+# 6. CARRELLO (RECAP)
+async def show_cart(obj, state: FSMContext):
+    data = await state.get_data()
+    tot = calc_total(data)
+    cau = generate_causale(obj.from_user.id)
+    await state.update_data(total=tot, causale=cau)
+
+    ch_names = [CHANNELS_DATA[c]['name'] for c in data['channels']]
+    ex_names = [EXTRAS_DATA[e]['name'] for e in data.get('extras', [])]
+
+    txt = (f"🛒 **CARRELLO E RIEPILOGO**\n\n"
+           f"📺 **Canali ({len(ch_names)}):**\n- " + "\n- ".join(ch_names) + "\n"
+           f"⏳ **Durata:** {data['duration']} Ore\n"
+           f"✨ **Aggiunte:** {', '.join(ex_names) if ex_names else 'Nessuna'}\n"
+           f"📅 **Data e Ora:** {data['date']} alle {data['start_time']}\n\n"
+           f"💰 **TOTALE:** {tot}€\n"
+           f"🔑 **Causale:** `{cau}`\n\n"
+           f"Se tutto è corretto, procedi al pagamento.")
+
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="💳 Procedi al Pagamento", callback_data="pay_now"))
+    kb.row(types.InlineKeyboardButton(text="⬅️ Annulla e Ricomincia", callback_data="user_view"))
+
+    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
+    else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+    await state.set_state(SponsorFlow.receipt)
+
+# 7. PAGAMENTO E RICEVUTA
+@dp.callback_query(SponsorFlow.receipt, F.data == "pay_now")
+async def req_receipt(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    txt = (f"💳 **PAGAMENTO**\n\n"
+           f"Importo: **{data['total']}€**\n"
+           f"IBAN: `{IBAN_DATI}`\n"
+           f"Causale Obbligatoria: `{data['causale']}`\n\n"
+           f"📸 **Invia qui sotto lo screenshot della ricevuta per confermare.**")
+    await callback.message.edit_text(txt)
+
+@dp.message(SponsorFlow.receipt, F.photo)
+async def process_receipt(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    u = message.from_user
+
+    adm_txt = (f"🚨 **NUOVO ORDINE SPONSOR**\n\n"
+               f"👤 Da: @{u.username}\n"
+               f"💰 Totale: {data['total']}€\n"
+               f"🔑 Causale: `{data['causale']}`\n\n"
+               f"Controlla lo screenshot.")
+
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        types.InlineKeyboardButton(text="✅ Approva", callback_data=f"ok_{u.id}"),
+        types.InlineKeyboardButton(text="❌ Rifiuta", callback_data=f"no_{u.id}")
+    )
+
+    await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=adm_txt, reply_markup=kb.as_markup())
+    await message.answer("✅ Ricevuta inviata! L'admin confermerà a breve l'attivazione.")
     await state.clear()
-
-@dp.callback_query(F.data.startswith("ap_"))
-async def admin_approve(callback: types.CallbackQuery):
-    user_id = int(callback.data.split("_")[1])
-    await bot.send_message(user_id, "🎉 Il tuo pagamento è stato confermato! Il tuo ordine è in elaborazione.")
-    await callback.message.edit_caption(caption=callback.message.caption + "\n\n🟢 **APPROVATO**")
 
 # --- AVVIO ---
 async def main():
-    # Thread Flask per Render (Porta 10000)
     Thread(target=run_flask, daemon=True).start()
-
-    # Avvio Bot
-    logging.info("Bot in fase di avvio...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("Bot spento.")
+    asyncio.run(main())
