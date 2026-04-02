@@ -194,7 +194,7 @@ async def step_time(callback: types.CallbackQuery, state: FSMContext):
     for t in ["09:00", "12:00", "15:00", "18:00"]: kb.add(types.InlineKeyboardButton(text=t, callback_data=f"tm_{t}"))
     kb.adjust(2)
     kb.row(types.InlineKeyboardButton(text="✍️ Personalizzata", callback_data="tm_custom"))
-    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="go_date")) # AGGIUNTO BOTTONE INDIETRO
+    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="go_date"))
     await callback.message.edit_text("⏰ **Orario di inizio:**", reply_markup=kb.as_markup())
     await state.set_state(Flow.start_time)
 
@@ -212,8 +212,11 @@ async def send_final_recap(message, state):
     await state.update_data(total_cost=total)
     recap = (f"🛒 **RIEPILOGO ORDINE**\n\n📺 Canali: {len(data['channels'])}\n⏳ Durata: {data['duration']}h\n"
              f"⏰ Inizio: {data['start_time']}\n📅 Data: {data['date']}\n✨ Extra: {', '.join(data.get('extras', []))}\n\n💰 **TOTALE: {total}€**")
-    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="💳 Paga Ora", callback_data="pay_now"))
-    await message.edit_text(recap, reply_markup=kb.as_markup()) # MODIFICATO IN EDIT_TEXT
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="💳 Paga Ora", callback_data="pay_now"))
+    kb.row(types.InlineKeyboardButton(text="✏️ Modifica", callback_data="go_date"), # MODIFICA
+           types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main")) # ANNULLA
+    await message.edit_text(recap, reply_markup=kb.as_markup())
     await state.set_state(Flow.receipt)
 
 @dp.message(Flow.start_time)
@@ -234,13 +237,15 @@ async def step_inc(callback: types.CallbackQuery, state: FSMContext):
 async def inc_instr(callback: types.CallbackQuery, state: FSMContext):
     pkg = callback.data.replace("inc_", "")
     await state.update_data(pkg=pkg, total_cost=INCREMENTS_PRICES[pkg], channels=["Incrementi"])
-    await callback.message.edit_text(f"✅ Pacchetto {pkg}\nInvia qui il **LINK DEL CANALE**:")
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="buy_increment")) # INDIETRO NEGLI INCREMENTI
+    await callback.message.edit_text(f"✅ Pacchetto {pkg}\nInvia qui il **LINK DEL CANALE**:", reply_markup=kb.as_markup())
     await state.set_state(Flow.inc_setup)
 
 @dp.message(Flow.inc_setup)
 async def handle_inc_link(message: types.Message, state: FSMContext):
     await state.update_data(channel_link=message.text)
     kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="💳 Paga Ora", callback_data="pay_now"))
+    kb.row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
     await message.answer(f"✅ Link ricevuto: {message.text}", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data == "pay_now")
@@ -249,8 +254,8 @@ async def pay_info(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(causale_code=cau)
     txt = (f"💳 **PAGAMENTO**\n\nIBAN: `{IBAN_DATI}`\nCausale: `ADV-{cau}`\n\n📸 **Invia lo screenshot della ricevuta!**")
     kb = InlineKeyboardBuilder()
-    kb.row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main")) # AGGIUNTO ANNULLA
-    await callback.message.edit_text(txt, reply_markup=kb.as_markup()) # MODIFICA IL MESSAGGIO ESISTENTE
+    kb.row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup())
     await state.set_state(Flow.receipt)
 
 @dp.message(Flow.receipt, F.photo)
