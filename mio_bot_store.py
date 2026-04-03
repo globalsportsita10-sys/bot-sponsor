@@ -6,7 +6,7 @@ import logging
 import os
 from threading import Thread
 from flask import Flask
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -45,18 +45,28 @@ def get_day_bookings(date_str):
     res = c.fetchall(); conn.close()
     times = []
     for s, e in res:
-        try: times.append((datetime.strptime(s, "%H:%M").time(), datetime.strptime(e, "%H:%M").time()))
+        try:
+            # Gestione slot che finiscono il giorno dopo (es. 24h)
+            st = datetime.strptime(s, "%H:%M").time()
+            et = datetime.strptime(e, "%H:%M").time()
+            times.append((st, et))
         except: continue
     return sorted(times)
 
 def is_slot_available(date_str, duration_h):
     bookings = get_day_bookings(date_str)
-    curr = datetime.strptime("00:00", "%H:%M")
-    end_d = datetime.strptime("23:59", "%H:%M")
+    # Se c'è già una prenotazione da 24h (00:00 - 23:59 o simile), il giorno è pieno
+    for s, e in bookings:
+        if s == time(0,0) and e == time(23,59): return False
+
+    curr = datetime.combine(datetime.today(), time(0,0))
+    end_d = datetime.combine(datetime.today(), time(23,59))
+
     for b_s, b_e in bookings:
         bs_dt = datetime.combine(datetime.today(), b_s)
         if (bs_dt - curr).total_seconds() / 3600 >= duration_h: return True
         curr = datetime.combine(datetime.today(), b_e)
+
     return (end_d - curr).total_seconds() / 3600 >= duration_h
 
 init_db()
@@ -73,18 +83,24 @@ class Flow(StatesGroup):
     channels = State(); duration = State(); extras = State(); date = State()
     start_time = State(); receipt = State(); inc_setup = State(); broadcast = State()
 
+# --- CALCOLO SOLDI CORRETTO ---
 def calculate_sponsor_price(channels, hours):
-    total = 0.0; h = str(hours)
+    total = 0.0
+    h = str(hours)
+    # Singoli
     if "goal" in channels: total += {"3": 5, "6": 7.5, "12": 11, "24": 13.5}.get(h, 0)
     if "juve" in channels: total += {"3": 4, "6": 5.5, "12": 8, "24": 12}.get(h, 0)
+
+    # Streaming pack
     st = [c for c in channels if c.startswith("str_")]
     n = len(st)
     if n == 9: total += {"3": 25, "6": 35, "12": 50, "24": 65}.get(h, 0)
     elif 5 <= n <= 8: total += {"3": 20, "6": 30, "12": 40, "24": 50}.get(h, 0)
-    elif 1 <= n <= 4: total += n * {"3": 6, "6": 9.5, "12": 15, "24": 19.5}.get(h, 0)
-    return total
+    elif 3 <= n <= 4: total += {"3": 15, "6": 20, "12": 35, "24": 45}.get(h, 0)
+    elif 1 <= n <= 2: total += n * {"3": 6, "6": 9.5, "12": 15, "24": 19.5}.get(h, 0)
+    return float(total)
 
-# --- MENU ---
+# --- LOGICA BOT ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -116,10 +132,7 @@ async def check_status(callback: types.CallbackQuery):
     conn = sqlite3.connect('ads_booking.db'); c = conn.cursor()
     c.execute("SELECT info, date, start_t FROM bookings WHERE user_id = ? ORDER BY id DESC LIMIT 5", (callback.from_user.id,))
     rows = c.fetchall(); conn.close()
-    if not rows: txt = "🔍 Non hai ordini attivi."
-    else:
-        txt = "🔍 **I TUOI ULTIMI ORDINI:**\n\n"
-        for r in rows: txt += f"📦 {r[0]}\n📅 Data: {r[1]} ore {r[2]}\n✅ Stato: Approvato\n\n"
+    txt = "🔍 **I TUOI ORDINI:**\n\n" + ("\n".join([f"📦 {r[0]}\n📅 {r[1]} ore {r[2]}\n✅ Approvato" for r in rows]) if rows else "Nessun ordine trovato.")
     await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup())
 
 @dp.callback_query(F.data == "back_main")
@@ -136,11 +149,8 @@ async def render_ch(callback, sel):
     kb = InlineKeyboardBuilder()
     for k, v in CHANNELS_DATA.items(): kb.add(types.InlineKeyboardButton(text=f"{v} {'✅' if k in sel else ''}", callback_data=f"ch_{k}"))
     kb.adjust(2)
-    # Tasto dinamico Tutto / Deseleziona
-    if len(sel) == len(CHANNELS_DATA):
-        kb.row(types.InlineKeyboardButton(text="❌ Deseleziona Tutto", callback_data="ch_none"))
-    else:
-        kb.row(types.InlineKeyboardButton(text="🌟 Seleziona Tutto", callback_data="ch_all"))
+    if len(sel) == len(CHANNELS_DATA): kb.row(types.InlineKeyboardButton(text="❌ Deseleziona Tutto", callback_data="ch_none"))
+    else: kb.row(types.InlineKeyboardButton(text="🌟 Seleziona Tutto", callback_data="ch_all"))
     kb.row(types.InlineKeyboardButton(text="⬅️", callback_data="back_main"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_dur"))
     await callback.message.edit_text("📢 **CANALI:**", reply_markup=kb.as_markup())
 
@@ -211,7 +221,8 @@ async def handle_tm(callback: types.CallbackQuery, state: FSMContext):
 async def send_final_recap(message, state):
     data = await state.get_data()
     total = calculate_sponsor_price(data['channels'], data['duration']) + (1 if "fissato" in data.get('extras', []) else 0) + (3 if "repost" in data.get('extras', []) else 0)
-    h_end = (datetime.strptime(data['start_time'], "%H:%M") + timedelta(hours=data['duration'])).strftime("%H:%M")
+    h_start = datetime.strptime(data['start_time'], "%H:%M")
+    h_end = (h_start + timedelta(hours=data['duration'])).strftime("%H:%M")
     await state.update_data(total_cost=total, end_time=h_end)
     recap = f"🛒 **RIEPILOGO**\n\n📺 Canali: {len(data['channels'])}\n⏳ Durata: {data['duration']}h\n⏰ {data['start_time']} -> {h_end}\n📅 {data['date']}\n💰 **TOTALE: {total}€**"
     kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="💳 Paga", callback_data="pay_now")).row(types.InlineKeyboardButton(text="✏️ Modifica", callback_data="go_date"), types.InlineKeyboardButton(text="❌", callback_data="back_main"))
@@ -228,8 +239,7 @@ async def step_inc(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("inc_"))
 async def inc_instr(callback: types.CallbackQuery, state: FSMContext):
-    p = callback.data.replace("inc_", "")
-    await state.update_data(pkg=p, total_cost=INCREMENTS_PRICES[p])
+    p = callback.data.replace("inc_", ""); await state.update_data(pkg=p, total_cost=INCREMENTS_PRICES[p])
     kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="buy_increment"))
     await callback.message.edit_text(f"✅ {p}\nInvia il **LINK**:", reply_markup=kb.as_markup()); await state.set_state(Flow.inc_setup)
 
@@ -241,11 +251,11 @@ async def handle_inc_link(message: types.Message, state: FSMContext):
 
 # --- PAGAMENTO ---
 @dp.callback_query(F.data == "pay_now")
-@dp.callback_query(Flow.receipt, F.data == "pay_now")
 async def pay_info(callback: types.CallbackQuery, state: FSMContext):
     cau = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
     await state.update_data(causale_code=cau)
     await callback.message.edit_text(f"💳 **PAGAMENTO**\nIBAN: `{IBAN_DATI}`\nCausale: `ADV-{cau}`\n\n📸 **Invia screenshot!**", reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main")).as_markup())
+    await state.set_state(Flow.receipt)
 
 @dp.message(Flow.receipt, F.photo)
 async def handle_receipt(message: types.Message, state: FSMContext):
@@ -274,13 +284,27 @@ async def admin_list(callback: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("adm_ok_"))
 async def admin_approve(callback: types.CallbackQuery):
     uid = int(callback.data.replace("adm_ok_", "")); lines = callback.message.caption.split('\n')
-    info = lines[2]; d_val, s_t, e_t = "N/D", "00:00", "00:00"
+    info = lines[2]; d_val, s_t, e_t = "N/D", "00:00", "23:59"
+    dur_h = 0
     for l in lines:
         if "📅" in l: d_val = l.replace("📅 ", "").strip()
-        if "⏳" in l and "-" in l:
-            try: parts = l.split('|')[1].strip().split('-'); s_t, e_t = parts[0].strip(), parts[1].strip()
+        if "⏳" in l:
+            try:
+                dur_h = int(l.split('h')[0].replace('⏳','').strip())
+                parts = l.split('|')[1].strip().split('-')
+                s_t, e_t = parts[0].strip(), parts[1].strip()
             except: pass
-    conn = sqlite3.connect('ads_booking.db'); conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, info, d_val, s_t, e_t)); conn.commit(); conn.close()
+
+    conn = sqlite3.connect('ads_booking.db')
+    # Se dura 24h, occupiamo il giorno di inizio COMPLETAMENTE
+    if dur_h == 24:
+        conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, info, d_val, "00:00", "23:59"))
+        # E occupiamo anche il giorno dopo per sicurezza (opzionale, ma consigliato)
+        next_d = (datetime.strptime(d_val, "%d/%m") + timedelta(days=1)).strftime("%d/%m")
+        conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, info + " (Cont.)", next_d, "00:00", "23:59"))
+    else:
+        conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, info, d_val, s_t, e_t))
+    conn.commit(); conn.close()
     await bot.send_message(uid, "🎉 **APPROVATO!**"); await callback.message.edit_caption(caption=callback.message.caption + "\n🟢 OK")
 
 @dp.callback_query(F.data == "admin_bc")
