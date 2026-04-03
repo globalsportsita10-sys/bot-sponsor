@@ -22,7 +22,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-API_TOKEN = '8513979649:AAGzkysL7VrKtueQq2lofkajK-NkYdYSzVY'
+API_TOKEN = '8513979649:AAEIzdfkyR2c8-oejkhn-wahI2g4xKhw9zM'
 ADMIN_ID = 8361466889
 IBAN_DATI = "IT 00 X 00000 00000 000000000000"
 
