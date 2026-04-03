@@ -6,7 +6,7 @@ import logging
 import os
 from threading import Thread
 from flask import Flask
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -14,16 +14,16 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# --- CONFIG ---
+# --- CONFIGURAZIONE SERVER ---
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Bot is Running!"
+def home(): return "Bot Attivo"
 def run_flask():
-   port = int(os.environ.get("PORT", 10000))
-   app.run(host='0.0.0.0', port=port)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
 
 API_TOKEN = '8513979649:AAEIzdfkyR2c8-oejkhn-wahI2g4xKhw9zM'
-ADMIN_ID = 8361466889
+ADMIN_ID = 8361466889 # Inserisci il tuo ID
 IBAN_DATI = "IT 00 X 00000 00000 000000000000"
 
 logging.basicConfig(level=logging.INFO)
@@ -32,240 +32,494 @@ dp = Dispatcher(storage=MemoryStorage())
 
 # --- DATABASE ---
 def init_db():
-   conn = sqlite3.connect('ads_booking.db')
-   c = conn.cursor()
-   c.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT)')
-   c.execute('CREATE TABLE IF NOT EXISTS bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, info TEXT, date TEXT, start_t TEXT, end_t TEXT)')
-   conn.commit(); conn.close()
+    conn = sqlite3.connect('ads_booking.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT)')
+    c.execute('CREATE TABLE IF NOT EXISTS bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, type TEXT, info TEXT, date TEXT, start_t TEXT, end_t TEXT, causale TEXT, status TEXT)')
+    conn.commit()
+    conn.close()
 
 def get_day_bookings(date_str):
-   conn = sqlite3.connect('ads_booking.db')
-   c = conn.cursor()
-   c.execute("SELECT start_t, end_t FROM bookings WHERE date = ?", (date_str,))
-   res = c.fetchall(); conn.close()
-   times = []
-   for s, e in res:
-       try:
-           t_start = datetime.strptime(s, "%H:%M").time()
-           t_end = datetime.strptime(e, "%H:%M").time()
-           times.append((t_start, t_end))
-       except: continue
-   return sorted(times)
+    conn = sqlite3.connect('ads_booking.db')
+    c = conn.cursor()
+    c.execute("SELECT start_t, end_t FROM bookings WHERE date = ? AND status = 'APPROVATO'", (date_str,))
+    res = c.fetchall()
+    conn.close()
+    return res
 
-# LOGICA DI BLOCCO AUTOMATICO 🚫
-def is_slot_available(date_str, duration_h=3):
-   bookings = get_day_bookings(date_str)
-   if not bookings: return True
-
-   # Convertiamo le prenotazioni in minuti (0-1440)
-   segments = []
-   for b_start, b_end in bookings:
-       m_start = b_start.hour * 60 + b_start.minute
-       m_end = b_end.hour * 60 + b_end.minute
-       if m_end <= m_start: m_end = 1440
-       segments.append((m_start, m_end))
-
-   # Uniamo segmenti sovrapposti o consecutivi per semplificare il calcolo dei buchi
-   segments.sort()
-   if not segments: return True
-
-   merged = [segments[0]]
-   for current in segments[1:]:
-       prev_start, prev_end = merged[-1]
-       if current[0] <= prev_end:
-           merged[-1] = (prev_start, max(prev_end, current[1]))
-       else:
-           merged.append(current)
-
-   # Controlliamo se esiste un buco di almeno 3 ore (180 min)
-   required_gap = 180
-   last_end = 0
-   for start, end in merged:
-       if (start - last_end) >= required_gap:
-           return True
-       last_end = max(last_end, end)
-
-   if (1440 - last_end) >= required_gap:
-       return True
-
-   return False
+def is_day_full(date_str):
+    bookings = get_day_bookings(date_str)
+    if len(bookings) >= 2: return True
+    return False
 
 init_db()
 
-# --- DATI ---
-CHANNELS_DATA = {
-   "goal": "Goal Highlights ⚽️", "juve": "Juventus Planet ⚪️⚫️",
-   "str_1": "Streaming 1 📺", "str_2": "Streaming 2 📺", "str_3": "Streaming 3 📺",
-   "str_4": "Streaming 4 📺", "str_5": "Streaming 5 📺", "str_6": "Streaming 6 📺",
-   "str_7": "Streaming 7 📺", "str_8": "Streaming 8 📺", "str_9": "Streaming 9 📺"
+# --- DATI E PREZZI ---
+CHANNELS = {
+    "goal": "Football Goal ⚽️", "juve": "Juventus Planet ⚪️⚫️",
+    "str_1": "Streaming 1 📺", "str_2": "Streaming 2 📺", "str_3": "Streaming 3 📺",
+    "str_4": "Streaming 4 📺", "str_5": "Streaming 5 📺", "str_6": "Streaming 6 📺",
+    "str_7": "Streaming 7 📺", "str_8": "Streaming 8 📺", "str_9": "Streaming 9 📺"
+}
+
+INCREMENT_PACKAGES = {
+    "1K": "1K Membri - 50€", "2K": "2K Membri - 80€",
+    "3K": "3K Membri - 120€", "5K": "5K Membri - 200€"
 }
 
 class Flow(StatesGroup):
-   channels = State(); duration = State(); extras = State(); date = State()
-   start_time = State(); receipt = State(); inc_setup = State(); broadcast = State()
+    channels = State()
+    duration = State()
+    custom_duration = State()
+    extras = State()
+    date = State()
+    time = State()
+    custom_time = State()
+    receipt_sponsor = State()
+    inc_package = State()
+    inc_link = State()
+    inc_receipt = State()
 
-def calculate_sponsor_price(channels, hours):
-   total = 0.0; h = str(hours)
-   if "goal" in channels: total += {"3": 5, "6": 7.5, "12": 11, "24": 13.5}.get(h, 0)
-   if "juve" in channels: total += {"3": 4, "6": 5.5, "12": 8, "24": 12}.get(h, 0)
-   st = [c for c in channels if c.startswith("str_")]
-   n = len(st)
-   if n == 9: total += {"3": 25, "6": 35, "12": 50, "24": 65}.get(h, 0)
-   elif 5 <= n <= 8: total += {"3": 20, "6": 30, "12": 40, "24": 50}.get(h, 0)
-   elif 3 <= n <= 4: total += {"3": 15, "6": 20, "12": 35, "24": 45}.get(h, 0)
-   elif 1 <= n <= 2: total += n * {"3": 6, "6": 9.5, "12": 15, "24": 19.5}.get(h, 0)
-   return float(total)
+def calculate_price(channels, h):
+    if h < 3 or h > 24: return 0.0
 
-# --- HANDLERS ---
+    def calc_tier(h, t3, t6, t12, t24):
+        if h == 3: return t3
+        elif h < 6: return t3 + (h-3)*0.25
+        elif h == 6: return t6
+        elif h < 12: return t6 + (h-6)*0.25
+        elif h == 12: return t12
+        elif h < 24: return t12 + (h-12)*0.25
+        else: return t24
+
+    tot = 0.0
+    if "juve" in channels: tot += calc_tier(h, 4.0, 6.0, 9.0, 14.0)
+    if "goal" in channels: tot += calc_tier(h, 4.5, 7.0, 11.0, 14.0)
+
+    st_count = sum(1 for c in channels if c.startswith("str_"))
+    if st_count == 9: tot += calc_tier(h, 6.5, 11.5, 19.5, 28.0)
+    elif st_count > 0: tot += calc_tier(h, 4.5, 8.0, 14.0, 20.0)
+    return tot
+
+# --- MENU PRINCIPALE E ADMIN ---
 @dp.message(Command("start"))
-async def cmd_start(message: types.Message, state: FSMContext):
-   await state.clear()
-   conn = sqlite3.connect('ads_booking.db')
-   conn.execute("INSERT OR IGNORE INTO users VALUES (?,?)", (message.from_user.id, message.from_user.username))
-   conn.commit(); conn.close()
-   if message.from_user.id == ADMIN_ID: await admin_panel(message)
-   else: await main_menu(message)
+async def start_cmd(message: types.Message, state: FSMContext):
+    await state.clear()
+    conn = sqlite3.connect('ads_booking.db')
+    conn.execute("INSERT OR IGNORE INTO users VALUES (?,?)", (message.from_user.id, message.from_user.username))
+    conn.commit(); conn.close()
+    if message.from_user.id == ADMIN_ID: await admin_panel(message)
+    else: await main_menu(message)
+
+async def admin_panel(obj):
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="📅 Prenotazioni", callback_data="adm_list"))
+    kb.row(types.InlineKeyboardButton(text="🏠 Menu Utente", callback_data="back_main"))
+    txt = "🛠 **PANNELLO ADMIN**"
+    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
+    else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
 
 async def main_menu(obj):
-   kb = InlineKeyboardBuilder()
-   kb.row(types.InlineKeyboardButton(text="📢 Acquista Sponsor", callback_data="buy_sponsor"))
-   kb.row(types.InlineKeyboardButton(text="🚀 Acquista Incrementi", callback_data="buy_increment"))
-   kb.row(types.InlineKeyboardButton(text="🔍 Stato Ordine", callback_data="order_status"),
-          types.InlineKeyboardButton(text="📋 Listino", url="https://t.me/GlobalSportsSponsor"))
-   kb.row(types.InlineKeyboardButton(text="🆘 Assistenza", url="https://t.me/GlobalSportsContatto"))
-   txt = "👋 **Benvenuto nel Global Advertising Bot!**"
-   if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
-   else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="📣 Acquista Sponsor", callback_data="buy_sponsor"))
+    kb.row(types.InlineKeyboardButton(text="📈 Acquista Incrementi", callback_data="buy_increment"))
+    kb.row(types.InlineKeyboardButton(text="🔍 Stato Ordine", callback_data="order_status"),
+           types.InlineKeyboardButton(text="🆘 Assistenza", url="https://t.me/GlobalSportsContatto"))
+    kb.row(types.InlineKeyboardButton(text="⚙️ Come Funziona", callback_data="how_works"),
+           types.InlineKeyboardButton(text="💰 Listino Prezzi", url="https://t.me/GlobalSportsSponsor"))
+
+    txt = "👋 **Benvenuto nel Global Advertising Bot!** Scegli un'opzione:"
+    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
+    else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data == "back_main")
-async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
-   await state.clear(); await main_menu(callback)
+async def back_main(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    if callback.from_user.id == ADMIN_ID: await admin_panel(callback)
+    else: await main_menu(callback)
 
+@dp.callback_query(F.data == "how_works")
+async def how_works(callback: types.CallbackQuery):
+    txt = ("⚙️ **Come Funziona**\n\n"
+           "1️⃣ **Sponsor:** Scegli i canali, la durata (fissa o personalizzata), eventuali extra e poi seleziona la data e l'orario in base alle disponibilità.\n"
+           "2️⃣ **Incrementi:** Scegli il pacchetto desiderato, aggiungi il nostro bot come admin al tuo canale con i permessi richiesti e invia il link.\n"
+           "3️⃣ **Pagamento:** Per entrambi i servizi, ti verrà fornito un IBAN e una CAUSALE univoca. Invia lo screen e attendi l'approvazione dell'admin!")
+    await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup())
+
+@dp.callback_query(F.data == "order_status")
+async def order_status(callback: types.CallbackQuery):
+    conn = sqlite3.connect('ads_booking.db')
+    c = conn.cursor()
+    c.execute("SELECT type, info, date, start_t, status FROM bookings WHERE user_id = ? ORDER BY id DESC LIMIT 5", (callback.from_user.id,))
+    rows = c.fetchall()
+    conn.close()
+    if not rows: txt = "🔍 Nessun ordine in corso."
+    else: txt = "🔍 **I TUOI ULTIMI ORDINI:**\n\n" + "\n\n".join([f"📦 {r[0]} ({r[1]})\n📅 {r[2]} ore {r[3]}\nStato: {r[4]}" for r in rows])
+    await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup())
+
+@dp.callback_query(F.data == "adm_list")
+async def adm_list(callback: types.CallbackQuery):
+    conn = sqlite3.connect('ads_booking.db')
+    rows = conn.execute("SELECT user_id, type, date, start_t, end_t FROM bookings WHERE status = 'APPROVATO' ORDER BY id DESC LIMIT 15").fetchall()
+    conn.close()
+    txt = "📅 **PRENOTAZIONI APPROVATE:**\n\n" + "\n".join([f"👤 {r[0]} | {r[1]} | {r[2]} ({r[3]}-{r[4]})" for r in rows])
+    await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup())
+
+# --- FLUSSO SPONSOR ---
 @dp.callback_query(F.data == "buy_sponsor")
-async def step_ch(callback: types.CallbackQuery, state: FSMContext):
-   await state.update_data(channels=[], extras=[])
-   await render_ch(callback, [])
+async def buy_sponsor(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(channels=[], ext_repost=False, ext_fiss=False, ext_nopost=0, cal_page=0)
+    await render_channels(callback, [])
 
-async def render_ch(callback, sel):
-   kb = InlineKeyboardBuilder()
-   for k, v in CHANNELS_DATA.items(): kb.add(types.InlineKeyboardButton(text=f"{v} {'✅' if k in sel else ''}", callback_data=f"ch_{k}"))
-   kb.adjust(2)
-   kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_dur"))
-   await callback.message.edit_text("📢 **CANALI:**", reply_markup=kb.as_markup())
+async def render_channels(callback, sel):
+    kb = InlineKeyboardBuilder()
+    for k, v in CHANNELS.items():
+        kb.add(types.InlineKeyboardButton(text=f"{v} {'✅' if k in sel else ''}", callback_data=f"ch_{k}"))
+    kb.adjust(2)
+    if len(sel) == len(CHANNELS): kb.row(types.InlineKeyboardButton(text="❌ Deseleziona Tutti", callback_data="ch_none"))
+    else: kb.row(types.InlineKeyboardButton(text="✅ Seleziona Tutti", callback_data="ch_all"))
+    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_dur"))
+    await callback.message.edit_text("📣 **Seleziona i canali per la sponsorizzazione:**", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data.startswith("ch_"))
-async def handle_ch(callback: types.CallbackQuery, state: FSMContext):
-   data = await state.get_data(); sel = data.get('channels', [])
-   c = callback.data.replace("ch_", "")
-   if c in sel: sel.remove(c)
-   else: sel.append(c)
-   await state.update_data(channels=sel); await render_ch(callback, sel)
+async def handle_channels(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    sel = data.get('channels', [])
+    c = callback.data.replace("ch_", "")
+    if c == "all": sel = list(CHANNELS.keys())
+    elif c == "none": sel = []
+    elif c in sel: sel.remove(c)
+    else: sel.append(c)
+    await state.update_data(channels=sel)
+    await render_channels(callback, sel)
 
 @dp.callback_query(F.data == "go_dur")
-async def step_dur(callback: types.CallbackQuery, state: FSMContext):
-   kb = InlineKeyboardBuilder()
-   for h in [3, 6, 12, 24]: kb.add(types.InlineKeyboardButton(text=f"{h} Ore", callback_data=f"dur_{h}"))
-   kb.adjust(2).row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="buy_sponsor"))
-   await callback.message.edit_text("⏳ **DURATA:**", reply_markup=kb.as_markup()); await state.set_state(Flow.duration)
+async def go_dur(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    if not data.get('channels', []):
+        await callback.answer("Devi selezionare almeno un canale!", show_alert=True)
+        return
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="3 Ore", callback_data="dur_3"), types.InlineKeyboardButton(text="6 Ore", callback_data="dur_6"))
+    kb.row(types.InlineKeyboardButton(text="12 Ore", callback_data="dur_12"), types.InlineKeyboardButton(text="24 Ore", callback_data="dur_24"))
+    kb.row(types.InlineKeyboardButton(text="✍️ Scegli durata personalizzata", callback_data="custom_dur"))
+    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="buy_sponsor"))
+    await callback.message.edit_text("⏳ **Scegli la durata della sponsorizzazione:**", reply_markup=kb.as_markup())
+    await state.set_state(Flow.duration)
+
+@dp.callback_query(Flow.duration, F.data == "custom_dur")
+async def custom_dur_prompt(callback: types.CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="go_dur"))
+    await callback.message.edit_text("✍️ Scrivi il numero di ore desiderate (Min 3, Max 24):", reply_markup=kb.as_markup())
+    await state.set_state(Flow.custom_duration)
+
+@dp.message(Flow.custom_duration)
+async def custom_dur_input(message: types.Message, state: FSMContext):
+    try:
+        h = int(message.text)
+        if h < 3 or h > 24: raise ValueError
+        await state.update_data(duration=h)
+        await render_extras(message, state)
+    except:
+        await message.answer("⚠️ Inserisci un numero valido tra 3 e 24.")
 
 @dp.callback_query(Flow.duration, F.data.startswith("dur_"))
 async def handle_dur(callback: types.CallbackQuery, state: FSMContext):
-   await state.update_data(duration=int(callback.data.replace("dur_", "")))
-   await step_ex(callback, state)
+    await state.update_data(duration=int(callback.data.replace("dur_", "")))
+    await render_extras(callback, state)
 
-async def step_ex(obj, state):
-   data = await state.get_data(); ex = data.get('extras', [])
-   kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text=f"📌 Fissato (+1€) {'✅' if 'fissato' in ex else '❌'}", callback_data="ex_fissato")).row(types.InlineKeyboardButton(text=f"🔄 Repost (+3€) {'✅' if 'repost' in ex else '❌'}", callback_data="ex_repost")).row(types.InlineKeyboardButton(text="⬅️", callback_data="go_dur"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_date"))
-   await obj.message.edit_text("✨ **EXTRA:**", reply_markup=kb.as_markup()); await state.set_state(Flow.extras)
+async def render_extras(obj, state):
+    data = await state.get_data()
+    rep = data.get('ext_repost', False)
+    fiss = data.get('ext_fiss', False)
+    nop = data.get('ext_nopost', 0)
+
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text=f"{'✅' if rep else '❌'} Repost (+3€)", callback_data="ex_repost"))
+    kb.row(types.InlineKeyboardButton(text=f"{'✅' if fiss else '❌'} Fissato (+1€)", callback_data="ex_fissato"))
+    kb.row(types.InlineKeyboardButton(text=f"No-Post (+1€/h) {nop}/3", callback_data="ex_nopost"))
+    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="go_dur"), types.InlineKeyboardButton(text="📅 Procedi con la data", callback_data="go_date"))
+
+    txt = "✨ **Aggiunte alla tua sponsorizzazione:**"
+    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
+    else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+    await state.set_state(Flow.extras)
 
 @dp.callback_query(Flow.extras, F.data.startswith("ex_"))
-async def handle_ex(callback: types.CallbackQuery, state: FSMContext):
-   data = await state.get_data(); ex = data.get('extras', [])
-   v = callback.data.replace("ex_", "")
-   if v in ex: ex.remove(v)
-   else: ex.append(v)
-   await state.update_data(extras=ex); await step_ex(callback, state)
+async def handle_extras(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    v = callback.data.replace("ex_", "")
+    if v == "repost": await state.update_data(ext_repost=not data.get('ext_repost'))
+    elif v == "fissato": await state.update_data(ext_fiss=not data.get('ext_fiss'))
+    elif v == "nopost":
+        n = data.get('ext_nopost', 0) + 1
+        if n > 3: n = 0
+        await state.update_data(ext_nopost=n)
+    await render_extras(callback, state)
 
 @dp.callback_query(F.data == "go_date")
 @dp.callback_query(Flow.extras, F.data == "go_date")
-async def step_date(callback: types.CallbackQuery, state: FSMContext):
-   kb = InlineKeyboardBuilder()
-   for i in range(14):
-       d_str = (datetime.now() + timedelta(days=i)).strftime("%d/%m")
-       if not is_slot_available(d_str):
-           kb.add(types.InlineKeyboardButton(text=f"{d_str} 🚫", callback_data="day_full"))
-       else:
-           kb.add(types.InlineKeyboardButton(text=d_str, callback_data=f"dt_{d_str}"))
-   kb.adjust(3).row(types.InlineKeyboardButton(text="⬅️", callback_data="go_dur"))
-   await callback.message.edit_text("📅 **DATA:**", reply_markup=kb.as_markup()); await state.set_state(Flow.date)
+async def render_calendar(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    page = data.get('cal_page', 0)
+
+    kb = InlineKeyboardBuilder()
+    start_idx = page * 9
+    for i in range(start_idx, start_idx + 9):
+        d_str = (datetime.now() + timedelta(days=i)).strftime("%d/%m")
+        if is_day_full(d_str): kb.add(types.InlineKeyboardButton(text=f"🚫 {d_str}", callback_data="day_full"))
+        else: kb.add(types.InlineKeyboardButton(text=d_str, callback_data=f"dt_{d_str}"))
+    kb.adjust(3)
+
+    nav_row = []
+    if page > 0: nav_row.append(types.InlineKeyboardButton(text="⬅️ Precedenti", callback_data="cal_prev"))
+    if page < 2: nav_row.append(types.InlineKeyboardButton(text="Successivi ➡️", callback_data="cal_next"))
+    if nav_row: kb.row(*nav_row)
+
+    kb.row(types.InlineKeyboardButton(text="🔙 Torna alle opzioni", callback_data="back_to_extras"))
+    await callback.message.edit_text("📅 **Scegli la data di pubblicazione:**", reply_markup=kb.as_markup())
+    await state.set_state(Flow.date)
+
+@dp.callback_query(Flow.date, F.data == "day_full")
+async def handle_full(callback: types.CallbackQuery):
+    await callback.answer("Giorno pieno! Scegli un'altra data.", show_alert=True)
+
+@dp.callback_query(Flow.date, F.data == "cal_prev")
+async def cal_prev(callback: types.CallbackQuery, state: FSMContext):
+    d = await state.get_data(); await state.update_data(cal_page=max(0, d.get('cal_page', 0)-1)); await render_calendar(callback, state)
+
+@dp.callback_query(Flow.date, F.data == "cal_next")
+async def cal_next(callback: types.CallbackQuery, state: FSMContext):
+    d = await state.get_data(); await state.update_data(cal_page=min(2, d.get('cal_page', 0)+1)); await render_calendar(callback, state)
+
+@dp.callback_query(F.data == "back_to_extras")
+async def back_to_extras(callback: types.CallbackQuery, state: FSMContext):
+    await render_extras(callback, state)
 
 @dp.callback_query(Flow.date, F.data.startswith("dt_"))
-async def step_time(callback: types.CallbackQuery, state: FSMContext):
-   d_sel = callback.data.replace("dt_", ""); await state.update_data(date=d_sel)
-   data = await state.get_data(); dur = data.get('duration', 3); bookings = get_day_bookings(d_sel)
-   kb = InlineKeyboardBuilder()
-   for pt in ["09:00", "12:00", "15:00", "18:00", "21:00"]:
-       pt_dt = datetime.strptime(pt, "%H:%M"); pt_end = pt_dt + timedelta(hours=dur); conflict = False
-       for sb, eb in bookings:
-           s_dt = datetime.combine(datetime.today(), sb); e_dt = datetime.combine(datetime.today(), eb)
-           if not (pt_end <= s_dt or pt_dt >= e_dt): conflict = True; break
-       if not conflict: kb.add(types.InlineKeyboardButton(text=pt, callback_data=f"tm_{pt}"))
-   kb.adjust(2).row(types.InlineKeyboardButton(text="⬅️", callback_data="go_date"))
-   await callback.message.edit_text(f"⏰ **ORARI ({d_sel}):**", reply_markup=kb.as_markup()); await state.set_state(Flow.start_time)
+async def render_times(callback: types.CallbackQuery, state: FSMContext):
+    sel_date = callback.data.replace("dt_", "")
+    await state.update_data(date=sel_date)
+    data = await state.get_data()
+    dur_h = data.get('duration')
+    bookings = get_day_bookings(sel_date)
 
-@dp.callback_query(Flow.start_time, F.data.startswith("tm_"))
-async def handle_tm(callback: types.CallbackQuery, state: FSMContext):
-   t_start = callback.data.replace("tm_", ""); await state.update_data(start_time=t_start)
-   data = await state.get_data()
-   total = calculate_sponsor_price(data['channels'], data['duration']) + (1 if "fissato" in data.get('extras', []) else 0) + (3 if "repost" in data.get('extras', []) else 0)
-   h_end = (datetime.strptime(t_start, "%H:%M") + timedelta(hours=data['duration'])).strftime("%H:%M")
-   await state.update_data(total_cost=total, end_time=h_end)
-   recap = f"🛒 **RIEPILOGO**\n\n📺 Canali: {len(data['channels'])}\n⏳ Durata: {data['duration']}h\n⏰ {t_start} -> {h_end}\n📅 {data['date']}\n💰 **TOTALE: {total}€**"
-   kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="💳 Paga", callback_data="pay_now")).row(types.InlineKeyboardButton(text="❌", callback_data="back_main"))
-   await callback.message.edit_text(recap, reply_markup=kb.as_markup()); await state.set_state(Flow.receipt)
+    kb = InlineKeyboardBuilder()
+    times = ["09:00", "12:00", "15:00", "18:00", "21:00", "23:00"]
+    valid_times = []
 
-@dp.callback_query(F.data == "pay_now")
-async def pay_now(callback: types.CallbackQuery):
-   await callback.message.edit_text(f"💳 **PAGAMENTO**\n\nIBAN: `{IBAN_DATI}`\n\n📸 Invia lo screenshot della ricevuta qui sotto:")
+    # Logica Override: se c'è sovrapposizione, nascondi l'orario
+    year = datetime.now().year
+    for t in times:
+        try:
+            start_dt = datetime.strptime(f"{sel_date}/{year} {t}", "%d/%m/%Y %H:%M")
+            end_dt = start_dt + timedelta(hours=dur_h)
+            overlap = False
+            for bs_str, be_str in bookings:
+                b_start = datetime.strptime(f"{sel_date}/{year} {bs_str}", "%d/%m/%Y %H:%M")
+                b_end = b_start + timedelta(hours=dur_h) # Approssimazione
+                if start_dt < b_end and end_dt > b_start: overlap = True; break
+            if not overlap: valid_times.append(t)
+        except: valid_times.append(t)
 
-@dp.message(Flow.receipt, F.photo)
-async def handle_receipt(message: types.Message, state: FSMContext):
-   data = await state.get_data(); u = message.from_user
-   caption = f"📩 **NUOVO ORDINE**\n👤 @{u.username} ({u.id})\n⏳ {data['duration']}h | {data['start_time']}-{data['end_time']}\n📅 {data['date']}\n💰 {data['total_cost']}€"
-   kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="✅ APPROVA", callback_data=f"adm_ok_{u.id}"), types.InlineKeyboardButton(text="❌ RIFIUTA", callback_data=f"adm_no_{u.id}"))
-   await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=caption, reply_markup=kb.as_markup())
-   await message.answer("✅ Ricevuta inviata! Attendi conferma."); await state.clear()
+    for t in valid_times: kb.add(types.InlineKeyboardButton(text=t, callback_data=f"tm_{t}"))
+    kb.adjust(2)
 
+    kb.row(types.InlineKeyboardButton(text="✍️ Inserisci orario personalizzato", callback_data="custom_time"))
+    kb.row(types.InlineKeyboardButton(text="⬅️ Cambia giorno", callback_data="go_date"))
+    await callback.message.edit_text(f"⏰ **Seleziona l'orario per il {sel_date}:**", reply_markup=kb.as_markup())
+    await state.set_state(Flow.time)
+
+@dp.callback_query(Flow.time, F.data == "custom_time")
+async def custom_time_prompt(callback: types.CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data=f"dt_{ (await state.get_data())['date'] }"))
+    await callback.message.edit_text("✍️ Scrivi l'orario nel formato HH:MM (es. 14:30):", reply_markup=kb.as_markup())
+    await state.set_state(Flow.custom_time)
+
+@dp.message(Flow.custom_time)
+async def custom_time_input(message: types.Message, state: FSMContext):
+    try:
+        datetime.strptime(message.text, "%H:%M")
+        await state.update_data(time=message.text)
+        await render_recap(message, state)
+    except:
+        await message.answer("⚠️ Formato non valido. Usa HH:MM (es. 14:30).")
+
+@dp.callback_query(Flow.time, F.data.startswith("tm_"))
+async def handle_time(callback: types.CallbackQuery, state: FSMContext):
+    await state.update_data(time=callback.data.replace("tm_", ""))
+    await render_recap(callback, state)
+
+async def render_recap(obj, state):
+    data = await state.get_data()
+    h = data['duration']
+    base_price = calculate_price(data['channels'], h)
+
+    rep_cost = 3.0 if data.get('ext_repost') else 0.0
+    fiss_cost = 1.0 if data.get('ext_fiss') else 0.0
+    nop_cost = data.get('ext_nopost', 0) * 1.0 * h
+    tot = base_price + rep_cost + fiss_cost + nop_cost
+
+    start_t = data['time']
+    end_dt = datetime.strptime(start_t, "%H:%M") + timedelta(hours=h)
+    end_t = end_dt.strftime("%H:%M")
+
+    await state.update_data(tot=tot, end_t=end_t)
+
+    ch_names = [CHANNELS[c] for c in data['channels']]
+    extra_txt = []
+    if data.get('ext_repost'): extra_txt.append("Repost")
+    if data.get('ext_fiss'): extra_txt.append("Fissato")
+    if data.get('ext_nopost', 0) > 0: extra_txt.append(f"No-Post ({data['ext_nopost']}/3)")
+    extra_str = ", ".join(extra_txt) if extra_txt else "Nessuna"
+
+    recap = (f"🛒 **IL TUO CARRELLO**\n\n"
+             f"📦 Pacchetto: Sponsor\n"
+             f"📺 Canali scelti: {', '.join(ch_names)}\n"
+             f"⏳ Ore: {h}h\n"
+             f"📅 Data: {data['date']}\n"
+             f"⏰ Inizio: {start_t} | Fine: {end_t}\n"
+             f"✨ Aggiunte: {extra_str}\n\n"
+             f"TOTALE DA PAGARE: {tot:.2f}€")
+
+    kb = InlineKeyboardBuilder()
+    kb.row(types.InlineKeyboardButton(text="💶 Procedi con il pagamento", callback_data="pay_sponsor"))
+    kb.row(types.InlineKeyboardButton(text="🔃 Modifica", callback_data="go_date"), types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
+
+    if isinstance(obj, types.Message): await obj.answer(recap, reply_markup=kb.as_markup())
+    else: await obj.message.edit_text(recap, reply_markup=kb.as_markup())
+
+@dp.callback_query(F.data == "pay_sponsor")
+async def pay_sponsor(callback: types.CallbackQuery, state: FSMContext):
+    cau = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    await state.update_data(causale=cau)
+
+    txt = (f"💶 **PROCEDI CON IL PAGAMENTO**\n\n"
+           f"IBAN: `{IBAN_DATI}`\n"
+           f"Causale: `ADV-{cau}` (⚠️ OBBLIGATORIA)\n\n"
+           f"📸 Invia qui sotto lo screenshot del pagamento per completare l'ordine.")
+
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+    await state.set_state(Flow.receipt_sponsor)
+
+@dp.message(Flow.receipt_sponsor, F.photo)
+async def rx_sponsor(message: types.Message, state: FSMContext):
+    d = await state.get_data(); u = message.from_user
+    ch_names = [CHANNELS[c] for c in d['channels']]
+    admin_txt = (f"🆕 **NUOVO ORDINE!**\n\n"
+                 f"👤 Utente: @{u.username} ({u.id})\n"
+                 f"📦 Acquisto: Sponsor\n"
+                 f"📺 Canali: {', '.join(ch_names)}\n"
+                 f"📅 Data: {d['date']}\n"
+                 f"⏰ {d['time']} -> {d['end_t']}\n"
+                 f"💰 Totale: {d['tot']:.2f}€\n"
+                 f"🔑 Causale: ADV-{d['causale']}")
+
+    # Salva in DB come In Attesa
+    conn = sqlite3.connect('ads_booking.db')
+    conn.execute("INSERT INTO bookings (user_id, type, info, date, start_t, end_t, causale, status) VALUES (?,?,?,?,?,?,?,?)",
+                 (u.id, "Sponsor", f"{len(d['channels'])} Canali, {d['duration']}h", d['date'], d['time'], d['end_t'], d['causale'], "IN ATTESA"))
+    bid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit(); conn.close()
+
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="✅ APPROVA", callback_data=f"adm_ok_{bid}"), types.InlineKeyboardButton(text="❌ RIFIUTA", callback_data=f"adm_no_{bid}"))
+    await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=admin_txt, reply_markup=kb.as_markup())
+    await message.answer("✅ Ricevuta inviata! L'ordine è in attesa di approvazione.")
+    await state.clear()
+
+# --- FLUSSO INCREMENTI ---
+@dp.callback_query(F.data == "buy_increment")
+async def buy_increment(callback: types.CallbackQuery, state: FSMContext):
+    kb = InlineKeyboardBuilder()
+    for k, v in INCREMENT_PACKAGES.items(): kb.add(types.InlineKeyboardButton(text=v, callback_data=f"inc_{k}"))
+    kb.adjust(2)
+    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"))
+    await callback.message.edit_text("📈 **Scegli il pacchetto Incrementi:**", reply_markup=kb.as_markup())
+    await state.set_state(Flow.inc_package)
+
+@dp.callback_query(Flow.inc_package, F.data.startswith("inc_"))
+async def inc_package_sel(callback: types.CallbackQuery, state: FSMContext):
+    pkg_id = callback.data.replace("inc_", "")
+    await state.update_data(inc_pkg=pkg_id, inc_name=INCREMENT_PACKAGES[pkg_id])
+
+    txt = (f"📦 Hai scelto: {INCREMENT_PACKAGES[pkg_id]}\n\n"
+           f"⚠️ **Istruzioni Obbligatorie:**\n"
+           f"1️⃣ Aggiungi @GlobalStreaming2_bot come admin nel tuo canale/gruppo.\n"
+           f"2️⃣ Assicurati di avergli dato il permesso 'Invita Utenti'.\n\n"
+           f"🔗 Invia qui sotto il link del canale/gruppo.")
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+    await state.set_state(Flow.inc_link)
+
+@dp.message(Flow.inc_link)
+async def inc_link_rx(message: types.Message, state: FSMContext):
+    await state.update_data(inc_link=message.text)
+    txt = ("✅ Link acquisito correttamente.\n\n"
+           "Procedi con il pagamento per iniziare la procedura di incremento.")
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="💸 Procedi al pagamento", callback_data="pay_inc"))
+    await message.answer(txt, reply_markup=kb.as_markup())
+
+@dp.callback_query(F.data == "pay_inc")
+async def pay_inc(callback: types.CallbackQuery, state: FSMContext):
+    cau = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    await state.update_data(causale=cau)
+
+    txt = (f"💶 **PROCEDI CON IL PAGAMENTO**\n\n"
+           f"IBAN: `{IBAN_DATI}`\n"
+           f"Causale: `INC-{cau}` (⚠️ OBBLIGATORIA)\n\n"
+           f"📸 Invia qui sotto lo screenshot del pagamento.")
+
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+    await state.set_state(Flow.inc_receipt)
+
+@dp.message(Flow.inc_receipt, F.photo)
+async def rx_inc(message: types.Message, state: FSMContext):
+    d = await state.get_data(); u = message.from_user
+    admin_txt = (f"🆕 **NUOVO ORDINE!**\n\n"
+                 f"👤 Utente: @{u.username} ({u.id})\n"
+                 f"📦 Acquisto: Incremento ({d['inc_name']})\n"
+                 f"🔗 Link: {d['inc_link']}\n"
+                 f"🔑 Causale: INC-{d['causale']}")
+
+    conn = sqlite3.connect('ads_booking.db')
+    conn.execute("INSERT INTO bookings (user_id, type, info, date, start_t, end_t, causale, status) VALUES (?,?,?,?,?,?,?,?)",
+                 (u.id, "Incremento", d['inc_name'], "N/D", "N/D", "N/D", d['causale'], "IN ATTESA"))
+    bid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit(); conn.close()
+
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="✅ APPROVA", callback_data=f"adm_ok_{bid}"), types.InlineKeyboardButton(text="❌ RIFIUTA", callback_data=f"adm_no_{bid}"))
+    await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=admin_txt, reply_markup=kb.as_markup())
+    await message.answer("✅ Ricevuta inviata! L'ordine è in attesa di approvazione.")
+    await state.clear()
+
+# --- ADMIN AZIONI ---
 @dp.callback_query(F.data.startswith("adm_ok_"))
-async def admin_approve(callback: types.CallbackQuery):
-   uid = int(callback.data.replace("adm_ok_", "")); lines = callback.message.caption.split('\n')
-   try:
-       dur_h = int(lines[2].split('h')[0].replace('⏳','').strip())
-       times = lines[2].split('|')[1].strip().split('-')
-       s_t = times[0].strip(); e_t = times[1].strip()
-       d_val = lines[3].replace('📅','').strip()
+async def adm_ok(callback: types.CallbackQuery):
+    bid = int(callback.data.replace("adm_ok_", ""))
+    conn = sqlite3.connect('ads_booking.db')
+    conn.execute("UPDATE bookings SET status = 'APPROVATO' WHERE id = ?", (bid,))
+    uid = conn.execute("SELECT user_id FROM bookings WHERE id = ?", (bid,)).fetchone()[0]
+    conn.commit(); conn.close()
+    await bot.send_message(uid, "🎉 **IL TUO ORDINE È STATO APPROVATO!**")
+    await callback.message.edit_caption(caption=callback.message.caption + "\n\n🟢 STATO: APPROVATO")
 
-       conn = sqlite3.connect('ads_booking.db')
-       conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, "Slot", d_val, s_t, e_t))
-       if dur_h >= 24: # Se 24h, blocca anche il giorno dopo
-           next_d = (datetime.strptime(d_val, "%d/%m") + timedelta(days=1)).strftime("%d/%m")
-           conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, "Slot 24h", next_d, "00:00", "23:59"))
-       conn.commit(); conn.close()
-       await bot.send_message(uid, "🎉 **ORDINE APPROVATO!**"); await callback.message.edit_caption(caption=callback.message.caption + "\n\n🟢 APPROVATO")
-   except: await callback.answer("Errore processamento")
-
-@dp.callback_query(F.data == "day_full")
-async def day_full(callback: types.CallbackQuery):
-   await callback.answer("Giorno pieno! 🚫", show_alert=True)
-
-async def admin_panel(message):
-   kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_bc")).row(types.InlineKeyboardButton(text="🏠 Menu", callback_data="back_main"))
-   await message.answer("🛠 **PANNELLO ADMIN**", reply_markup=kb.as_markup())
+@dp.callback_query(F.data.startswith("adm_no_"))
+async def adm_no(callback: types.CallbackQuery):
+    bid = int(callback.data.replace("adm_no_", ""))
+    conn = sqlite3.connect('ads_booking.db')
+    conn.execute("UPDATE bookings SET status = 'RIFIUTATO' WHERE id = ?", (bid,))
+    uid = conn.execute("SELECT user_id FROM bookings WHERE id = ?", (bid,)).fetchone()[0]
+    conn.commit(); conn.close()
+    await bot.send_message(uid, "❌ **IL TUO ORDINE È STATO RIFIUTATO.** Contatta l'assistenza.")
+    await callback.message.edit_caption(caption=callback.message.caption + "\n\n🔴 STATO: RIFIUTATO")
 
 async def main():
-   await bot.delete_webhook(drop_pending_updates=True)
-   await dp.start_polling(bot)
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-   Thread(target=run_flask, daemon=True).start()
-   asyncio.run(main())
+    Thread(target=run_flask, daemon=True).start()
+    try: asyncio.run(main())
+    except Exception as e: print("Bot fermato", e)
