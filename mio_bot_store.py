@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# --- DATABASE ---
+# --- DATABASE E LOGICA INTERVALLI ---
 def init_db():
     conn = sqlite3.connect('ads_booking.db')
     c = conn.cursor()
@@ -39,18 +39,68 @@ def init_db():
     conn.commit()
     conn.close()
 
-def get_day_bookings(date_str):
+def get_booked_intervals():
     conn = sqlite3.connect('ads_booking.db')
     c = conn.cursor()
-    c.execute("SELECT start_t, end_t FROM bookings WHERE date = ? AND status = 'APPROVATO'", (date_str,))
+    c.execute("SELECT date, start_t, info FROM bookings WHERE status = 'APPROVATO' AND type = 'Sponsor'")
     res = c.fetchall()
     conn.close()
-    return res
+
+    intervals = []
+    year = datetime.now().year
+    for date_str, start_t, info in res:
+        try:
+            dur_str = info.split(',')[-1].replace('h', '').strip()
+            dur_h = int(dur_str)
+        except:
+            dur_h = 3 # fallback
+
+        try:
+            b_start = datetime.strptime(f"{date_str}/{year} {start_t}", "%d/%m/%Y %H:%M")
+            if b_start < datetime.now() - timedelta(days=60):
+                b_start = b_start.replace(year=year+1)
+            b_end = b_start + timedelta(hours=dur_h)
+            intervals.append((b_start, b_end))
+        except:
+            pass
+    return intervals
 
 def is_day_full(date_str):
-    bookings = get_day_bookings(date_str)
-    if len(bookings) >= 2: return True
-    return False
+    conn = sqlite3.connect('ads_booking.db')
+    c = conn.cursor()
+    c.execute("SELECT id FROM bookings WHERE date = ? AND status = 'APPROVATO' AND type = 'Sponsor'", (date_str,))
+    res = c.fetchall()
+    conn.close()
+
+    # Regola delle 2 prenotazioni massime
+    if len(res) >= 2: return True
+
+    intervals = get_booked_intervals()
+    year = datetime.now().year
+
+    # Controlliamo solo gli orari "diurni" principali. Se questi sono tutti sovrapposti,
+    # la giornata è considerata "piena" (es. una 12h dalle 09:00 li copre tutti).
+    times = ["09:00", "12:00", "15:00", "18:00"]
+
+    for t in times:
+        try:
+            start_dt = datetime.strptime(f"{date_str}/{year} {t}", "%d/%m/%Y %H:%M")
+            if start_dt < datetime.now() - timedelta(days=60):
+                start_dt = start_dt.replace(year=year+1)
+            end_dt = start_dt + timedelta(hours=3) # Verifica spazio per almeno 3 ore
+
+            overlap = False
+            for b_start, b_end in intervals:
+                if start_dt < b_end and end_dt > b_start:
+                    overlap = True
+                    break
+
+            if not overlap:
+                return False # C'è almeno uno slot libero!
+        except:
+            pass
+
+    return True # Tutti gli slot principali sono occupati
 
 init_db()
 
@@ -302,25 +352,31 @@ async def render_times(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(date=sel_date)
     data = await state.get_data()
     dur_h = data.get('duration')
-    bookings = get_day_bookings(sel_date)
+
+    intervals = get_booked_intervals()
 
     kb = InlineKeyboardBuilder()
     times = ["09:00", "12:00", "15:00", "18:00", "21:00", "23:00"]
     valid_times = []
 
-    # Logica Override: se c'è sovrapposizione, nascondi l'orario
     year = datetime.now().year
     for t in times:
         try:
             start_dt = datetime.strptime(f"{sel_date}/{year} {t}", "%d/%m/%Y %H:%M")
+            if start_dt < datetime.now() - timedelta(days=60):
+                start_dt = start_dt.replace(year=year+1)
             end_dt = start_dt + timedelta(hours=dur_h)
+
             overlap = False
-            for bs_str, be_str in bookings:
-                b_start = datetime.strptime(f"{sel_date}/{year} {bs_str}", "%d/%m/%Y %H:%M")
-                b_end = b_start + timedelta(hours=dur_h) # Approssimazione
-                if start_dt < b_end and end_dt > b_start: overlap = True; break
-            if not overlap: valid_times.append(t)
-        except: valid_times.append(t)
+            for b_start, b_end in intervals:
+                if start_dt < b_end and end_dt > b_start:
+                    overlap = True
+                    break
+
+            if not overlap:
+                valid_times.append(t)
+        except:
+            valid_times.append(t)
 
     for t in valid_times: kb.add(types.InlineKeyboardButton(text=t, callback_data=f"tm_{t}"))
     kb.adjust(2)
@@ -339,8 +395,32 @@ async def custom_time_prompt(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(Flow.custom_time)
 async def custom_time_input(message: types.Message, state: FSMContext):
     try:
-        datetime.strptime(message.text, "%H:%M")
-        await state.update_data(time=message.text)
+        t_str = message.text.strip()
+        datetime.strptime(t_str, "%H:%M") # Validazione formato
+
+        data = await state.get_data()
+        sel_date = data.get('date')
+        dur_h = data.get('duration')
+
+        # Verifica sovrapposizioni anche sull'orario personalizzato
+        intervals = get_booked_intervals()
+        year = datetime.now().year
+        start_dt = datetime.strptime(f"{sel_date}/{year} {t_str}", "%d/%m/%Y %H:%M")
+        if start_dt < datetime.now() - timedelta(days=60):
+            start_dt = start_dt.replace(year=year+1)
+        end_dt = start_dt + timedelta(hours=dur_h)
+
+        overlap = False
+        for b_start, b_end in intervals:
+            if start_dt < b_end and end_dt > b_start:
+                overlap = True
+                break
+
+        if overlap:
+            await message.answer("⚠️ L'orario inserito si sovrappone a un'altra prenotazione. Scegli un orario diverso o controlla le disponibilità.")
+            return
+
+        await state.update_data(time=t_str)
         await render_recap(message, state)
     except:
         await message.answer("⚠️ Formato non valido. Usa HH:MM (es. 14:30).")
