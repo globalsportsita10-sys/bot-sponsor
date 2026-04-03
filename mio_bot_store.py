@@ -126,7 +126,7 @@ def calculate_sponsor_price(channels, hours):
 # ==========================================
 @dp.callback_query(F.data == "buy_sponsor")
 async def step_ch(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(type_order="Sponsor") # Identificatore ordine
+    await state.update_data(type_order="Sponsor")
     await render_ch(callback, [])
 
 async def render_ch(callback, sel):
@@ -177,7 +177,7 @@ async def handle_ex(callback: types.CallbackQuery, state: FSMContext):
     else: ex.append(val)
     await state.update_data(extras=ex); await step_ex(callback, state)
 
-@dp.callback_query(F.data == "go_date") # Tasto Modifica punta qui
+@dp.callback_query(F.data == "go_date")
 @dp.callback_query(Flow.extras, F.data == "go_date")
 async def step_date(callback: types.CallbackQuery, state: FSMContext):
     kb = InlineKeyboardBuilder()
@@ -211,7 +211,6 @@ async def send_final_recap(message, state):
     extra = (1 if "fissato" in data.get('extras', []) else 0) + (3 if "repost" in data.get('extras', []) else 0)
     total = base + extra
 
-    # Calcolo ora di fine
     try:
         h_start = datetime.strptime(data['start_time'], "%H:%M")
         h_end = (h_start + timedelta(hours=int(data['duration']))).strftime("%H:%M")
@@ -270,45 +269,56 @@ async def pay_info(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(Flow.receipt, F.photo)
 async def handle_receipt(message: types.Message, state: FSMContext):
     data = await state.get_data(); u = message.from_user
-
-    # Costruzione Recap per Admin
-    recap_admin = (f"📩 **NUOVO ORDINE RICEVUTO**\n"
-                   f"👤 Cliente: @{u.username if u.username else 'N/D'} (ID: `{u.id}`)\n"
-                   f"📦 Tipo: **{data.get('type_order')}**\n")
-
+    recap_admin = (f"📩 **NUOVO ORDINE**\n👤 Cliente: @{u.username if u.username else 'N/D'} (ID: `{u.id}`)\n📦 Tipo: **{data.get('type_order')}**\n")
     if data.get('type_order') == "Sponsor":
-        recap_admin += (f"⏳ Durata Totale: {data.get('duration')} ore\n"
-                        f"⏰ Inizio: {data.get('start_time')} | Fine: {data.get('end_time')}\n"
-                        f"📅 Data: {data.get('date')}\n"
-                        f"📺 Canali: {len(data.get('channels', []))}\n")
-    else:
-        recap_admin += f"🚀 Pacchetto: {data.get('pkg')}\n🔗 Link: {data.get('channel_link')}\n"
+        recap_admin += (f"⏳ Durata: {data.get('duration')}h\n⏰ {data.get('start_time')} - {data.get('end_time')}\n📅 Data: {data.get('date')}\n📺 Canali: {len(data.get('channels', []))}\n")
+    else: recap_admin += f"🚀 Pacchetto: {data.get('pkg')}\n🔗 Link: {data.get('channel_link')}\n"
+    recap_admin += f"\n💰 **TOTALE: {data.get('total_cost')}€**\n🔑 Causale: `ADV-{data.get('causale_code')}`"
 
-    recap_admin += (f"\n💰 **TOTALE: {data.get('total_cost')}€**\n"
-                    f"🔑 Causale: `ADV-{data.get('causale_code')}`")
-
-    kb = InlineKeyboardBuilder().row(
-        types.InlineKeyboardButton(text="✅ OK", callback_data=f"adm_ok_{u.id}"),
-        types.InlineKeyboardButton(text="❌ NO", callback_data=f"adm_no_{u.id}")
-    )
-
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="✅ OK", callback_data=f"adm_ok_{u.id}"), types.InlineKeyboardButton(text="❌ NO", callback_data=f"adm_no_{u.id}"))
     await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=recap_admin, reply_markup=kb.as_markup())
     await message.answer("✅ Ricevuta inviata! Attendi conferma."); await state.clear()
 
+# ==========================================
+# GESTIONE ADMIN
+# ==========================================
 async def admin_panel(obj):
     kb = InlineKeyboardBuilder()
     kb.row(types.InlineKeyboardButton(text="📅 Prenotazioni", callback_data="admin_list"))
     kb.row(types.InlineKeyboardButton(text="📢 Broadcast", callback_data="admin_bc"))
+    kb.row(types.InlineKeyboardButton(text="🏠 Menu Utente", callback_data="back_main"))
     if isinstance(obj, types.Message): await obj.answer("🛠 **PANNELLO ADMIN**", reply_markup=kb.as_markup())
     else: await obj.message.edit_text("🛠 **PANNELLO ADMIN**", reply_markup=kb.as_markup())
+
+@dp.callback_query(F.data == "admin_list")
+async def admin_list(callback: types.CallbackQuery):
+    conn = sqlite3.connect('ads_booking.db'); c = conn.cursor()
+    c.execute("SELECT * FROM bookings ORDER BY id DESC LIMIT 10"); rows = c.fetchall(); conn.close()
+    txt = "📅 **ULTIME 10 PRENOTAZIONI:**\n\n" + ("\n".join([f"🆔 #{r[0]} | {r[1]}\n📅 {r[2]} {r[3]}\n" for r in rows]) if rows else "Vuoto.")
+    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="admin_menu_back"))
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+
+@dp.callback_query(F.data == "admin_bc")
+async def admin_bc_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_text("📢 **INVIO BROADCAST**\nScrivi il messaggio per tutti gli utenti:"); await state.set_state(Flow.broadcast)
+
+@dp.message(Flow.broadcast)
+async def admin_bc_send(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID: return
+    conn = sqlite3.connect('ads_booking.db'); c = conn.cursor(); c.execute("SELECT user_id FROM users"); users = c.fetchall(); conn.close()
+    count = 0
+    for u in users:
+        try: await bot.send_message(u[0], message.text); count += 1; await asyncio.sleep(0.05)
+        except: continue
+    await message.answer(f"✅ Inviato a {count} utenti."); await state.clear(); await admin_panel(message)
+
+@dp.callback_query(F.data == "admin_menu_back")
+async def admin_back(callback: types.CallbackQuery): await admin_panel(callback)
 
 @dp.callback_query(F.data.startswith("adm_ok_"))
 async def admin_approve(callback: types.CallbackQuery):
     uid = int(callback.data.replace("adm_ok_", ""))
     await bot.send_message(uid, "🎉 **ORDINE APPROVATO!**"); await callback.message.edit_caption(caption=callback.message.caption + "\n🟢 OK")
-
-@dp.callback_query(F.data == "admin_menu_back")
-async def admin_back(callback: types.CallbackQuery): await admin_panel(callback)
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
