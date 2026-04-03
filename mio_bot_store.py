@@ -46,27 +46,18 @@ def get_day_bookings(date_str):
     times = []
     for s, e in res:
         try:
-            # Gestione slot che finiscono il giorno dopo (es. 24h)
-            st = datetime.strptime(s, "%H:%M").time()
-            et = datetime.strptime(e, "%H:%M").time()
-            times.append((st, et))
+            times.append((datetime.strptime(s, "%H:%M").time(), datetime.strptime(e, "%H:%M").time()))
         except: continue
     return sorted(times)
 
 def is_slot_available(date_str, duration_h):
     bookings = get_day_bookings(date_str)
-    # Se c'è già una prenotazione da 24h (00:00 - 23:59 o simile), il giorno è pieno
-    for s, e in bookings:
-        if s == time(0,0) and e == time(23,59): return False
-
     curr = datetime.combine(datetime.today(), time(0,0))
     end_d = datetime.combine(datetime.today(), time(23,59))
-
     for b_s, b_e in bookings:
         bs_dt = datetime.combine(datetime.today(), b_s)
         if (bs_dt - curr).total_seconds() / 3600 >= duration_h: return True
         curr = datetime.combine(datetime.today(), b_e)
-
     return (end_d - curr).total_seconds() / 3600 >= duration_h
 
 init_db()
@@ -83,15 +74,10 @@ class Flow(StatesGroup):
     channels = State(); duration = State(); extras = State(); date = State()
     start_time = State(); receipt = State(); inc_setup = State(); broadcast = State()
 
-# --- CALCOLO SOLDI CORRETTO ---
 def calculate_sponsor_price(channels, hours):
-    total = 0.0
-    h = str(hours)
-    # Singoli
+    total = 0.0; h = str(hours)
     if "goal" in channels: total += {"3": 5, "6": 7.5, "12": 11, "24": 13.5}.get(h, 0)
     if "juve" in channels: total += {"3": 4, "6": 5.5, "12": 8, "24": 12}.get(h, 0)
-
-    # Streaming pack
     st = [c for c in channels if c.startswith("str_")]
     n = len(st)
     if n == 9: total += {"3": 25, "6": 35, "12": 50, "24": 65}.get(h, 0)
@@ -100,7 +86,7 @@ def calculate_sponsor_price(channels, hours):
     elif 1 <= n <= 2: total += n * {"3": 6, "6": 9.5, "12": 15, "24": 19.5}.get(h, 0)
     return float(total)
 
-# --- LOGICA BOT ---
+# --- MENU PRINCIPALE ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -139,7 +125,7 @@ async def check_status(callback: types.CallbackQuery):
 async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
     await state.clear(); await main_menu(callback)
 
-# --- SPONSOR ---
+# --- SPONSOR FLOW ---
 @dp.callback_query(F.data == "buy_sponsor")
 async def step_ch(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(type_order="Sponsor", channels=[], extras=[])
@@ -284,28 +270,25 @@ async def admin_list(callback: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("adm_ok_"))
 async def admin_approve(callback: types.CallbackQuery):
     uid = int(callback.data.replace("adm_ok_", "")); lines = callback.message.caption.split('\n')
-    info = lines[2]; d_val, s_t, e_t = "N/D", "00:00", "23:59"
-    dur_h = 0
+    info = lines[2]; d_val = "N/D"; s_t = "00:00"; dur_h = 0
     for l in lines:
         if "📅" in l: d_val = l.replace("📅 ", "").strip()
         if "⏳" in l:
             try:
                 dur_h = int(l.split('h')[0].replace('⏳','').strip())
-                parts = l.split('|')[1].strip().split('-')
-                s_t, e_t = parts[0].strip(), parts[1].strip()
+                s_t = l.split('|')[1].strip().split('-')[0].strip()
             except: pass
-
     conn = sqlite3.connect('ads_booking.db')
-    # Se dura 24h, occupiamo il giorno di inizio COMPLETAMENTE
-    if dur_h == 24:
-        conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, info, d_val, "00:00", "23:59"))
-        # E occupiamo anche il giorno dopo per sicurezza (opzionale, ma consigliato)
-        next_d = (datetime.strptime(d_val, "%d/%m") + timedelta(days=1)).strftime("%d/%m")
-        conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, info + " (Cont.)", next_d, "00:00", "23:59"))
-    else:
-        conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, info, d_val, s_t, e_t))
+    start_dt = datetime.strptime(f"{d_val} {s_t}", "%d/%m %H:%M")
+    end_dt = start_dt + timedelta(hours=dur_h)
+    first_day_end = end_dt.strftime("%H:%M") if end_dt.date() == start_dt.date() else "23:59"
+    conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, info, d_val, s_t, first_day_end))
+    if end_dt.date() > start_dt.date():
+        next_day_str = end_dt.strftime("%d/%m")
+        conn.execute("INSERT INTO bookings (user_id, info, date, start_t, end_t) VALUES (?,?,?,?,?)", (uid, info + " (Cont.)", next_day_str, "00:00", end_dt.strftime("%H:%M")))
     conn.commit(); conn.close()
-    await bot.send_message(uid, "🎉 **APPROVATO!**"); await callback.message.edit_caption(caption=callback.message.caption + "\n🟢 OK")
+    await bot.send_message(uid, "🎉 **IL TUO ORDINE È STATO APPROVATO E CALENDARIZZATO!**")
+    await callback.message.edit_caption(caption=callback.message.caption + "\n\n🟢 APPROVATO")
 
 @dp.callback_query(F.data == "admin_bc")
 async def admin_bc_start(callback: types.CallbackQuery, state: FSMContext):
@@ -324,7 +307,7 @@ async def admin_back(callback: types.CallbackQuery): await admin_panel(callback)
 
 @dp.callback_query(F.data == "day_full")
 async def day_full_info(callback: types.CallbackQuery):
-    await callback.answer("Giorno senza slot liberi! 🚫", show_alert=True)
+    await callback.answer("Giorno senza slot liberi di 3h! 🚫", show_alert=True)
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
