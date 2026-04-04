@@ -356,6 +356,19 @@ async def render_times(callback: types.CallbackQuery, state: FSMContext):
    await state.update_data(date=sel_date)
    data = await state.get_data()
    dur_h = data.get('duration')
+     # Recupero i dati per le aggiunte
+   rep = data.get('ext_repost', False)
+   fiss = data.get('ext_fiss', False)
+   nop = data.get('ext_nopost', 0)
+
+    # Trasformo le selezioni in testo leggibile
+    extra_list = []
+    if rep: extra_list.append("Repost")
+    if fiss: extra_list.append("Fissato")
+    if nop > 0: extra_list.append(f"No-Post ({nop}/3)")
+
+    # Creo la variabile finale che il messaggio sta cercando
+    extra_str = ", ".join(extra_list) if extra_list else "Nessuna"
 
    intervals = get_booked_intervals()
 
@@ -493,8 +506,8 @@ async def pay_sponsor(callback: types.CallbackQuery, state: FSMContext):
    await state.update_data(causale=cau)
 
    txt = (f"💶 <b>PROCEDI CON IL PAGAMENTO</b>\n\n"
-          f"IBAN: `{IBAN_DATI}`\n"
-          f"Causale: `ADV-{cau}`\n ❗ <b>ATTENZIONE</b>: la casuale è <b>OBBLIGATORIA</b>, se non inserita i soldi <b>andranno persi</b>\n\n"
+          f"<b>IBAN</b>: `{IBAN_DATI}`\n"
+          f"<b>CASUALE</b>: `ADV-{cau}`\n ❗ <b>ATTENZIONE</b>: la casuale è <b>OBBLIGATORIA</b>, se non inserita i soldi <b>andranno persi</b>\n\n"
           f"📸 Invia qui sotto lo screenshot del pagamento per completare l'ordine.")
 
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
@@ -506,7 +519,7 @@ async def rx_sponsor(message: types.Message, state: FSMContext):
    d = await state.get_data(); u = message.from_user
    ch_names = [CHANNELS[c] for c in d['channels']]
    admin_txt = (f"🆕 <b>NUOVO ORDINE!</b>\n\n"
-                f"👤 <b>UTENTE/b>: @{u.username} ({u.id})\n"
+                f"👤 <b>UTENTE</b>: @{u.username} ({u.id})\n"
                 f"📦 <b>ACQUISTO</b>: Sponsor\n"
                 f"🖥️ <b>CANALI</b>: {', '.join(ch_names)}\n"
                 f"📅 <b>DATA</b>: {d['date']}\n"
