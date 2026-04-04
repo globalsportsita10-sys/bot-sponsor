@@ -231,8 +231,8 @@ async def render_channels(callback, sel):
    if len(sel) == len(CHANNELS): kb.row(types.InlineKeyboardButton(text="❌ Deseleziona Tutti", callback_data="ch_none"))
    else: kb.row(types.InlineKeyboardButton(text="✅ Seleziona Tutti", callback_data="ch_all"))
    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_dur"))
-   await callback.message.edit_text("👇 <b>Seleziona i canali</b> su cui desideri essere sponsorizzato:
-   <i>(Puoi selezionarne anche più di uno.)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
+   await callback.message.edit_text("""👇 <b>Seleziona i canali</b> su cui desideri essere sponsorizzato:
+   <i>(Puoi selezionarne anche più di uno.)</i>""", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("ch_"))
 async def handle_channels(callback: types.CallbackQuery, state: FSMContext):
@@ -263,9 +263,9 @@ async def go_dur(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(Flow.duration, F.data == "custom_dur")
 async def custom_dur_prompt(callback: types.CallbackQuery, state: FSMContext):
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="go_dur"))
-   await callback.message.edit_text("✍️ <b>DURATA PERSONALIZZATA</b>\n\n Scrivi il numero di ore che desideri (minimo 3, massimo 24).
+   await callback.message.edit_text("""✍️ <b>DURATA PERSONALIZZATA</b>\n\n Scrivi il numero di ore che desideri (minimo 3, massimo 24).
                                     <b>SONO CONSENTITE SOLO ORE INTERE</b>\n\n Esempio:
-                                    ⚫ Scrivi '4' per 4 ore", reply_markup=kb.as_markup(), parse_mode="HTML")
+                                    ⚫ Scrivi '4' per 4 ore""", reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.custom_duration)
 
 @dp.message(Flow.custom_duration)
