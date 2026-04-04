@@ -352,70 +352,55 @@ async def back_to_extras(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(Flow.date, F.data.startswith("dt_"))
 async def render_times(callback: types.CallbackQuery, state: FSMContext):
-   sel_date = callback.data.replace("dt_", "")
-   await state.update_data(date=sel_date)
-   data = await state.get_data()
-   dur_h = data.get('duration')
-     # Recupero i dati per le aggiunte
-   rep = data.get('ext_repost', False)
-   fiss = data.get('ext_fiss', False)
-   nop = data.get('ext_nopost', 0)
+    sel_date = callback.data.replace("dt_", "")
+    await state.update_data(date=sel_date)
+    data = await state.get_data()
+    dur_h = data.get('duration', 3)
 
-    # Trasformo le selezioni in testo leggibile
+    intervals = get_booked_intervals()
+
+    # Elenco disponibilità occupate
+    busy_list = []
+    for b_start, b_end in intervals:
+        if b_start.strftime("%d/%m") == sel_date:
+            busy_list.append(f"• {b_start.strftime('%H:%M')} - {b_end.strftime('%H:%M')} (🚫)")
+    busy_text = "\n".join(busy_list) if busy_list else "Tutta la giornata è libera!"
+
+    # --- LOGICA AGGIUNTE ---
     extra_list = []
-    if rep: extra_list.append("Repost")
-    if fiss: extra_list.append("Fissato")
-    if nop > 0: extra_list.append(f"No-Post ({nop}/3)")
-
-    # Creo la variabile finale che il messaggio sta cercando
+    if data.get('ext_repost'): extra_list.append("Repost")
+    if data.get('ext_fiss'): extra_list.append("Fissato")
+    if data.get('ext_nopost', 0) > 0: extra_list.append(f"No-Post ({data.get('ext_nopost')}/3)")
     extra_str = ", ".join(extra_list) if extra_list else "Nessuna"
 
-   intervals = get_booked_intervals()
+    kb = InlineKeyboardBuilder()
+    times = ["09:00", "12:00", "15:00", "18:00", "21:00", "23:00"]
 
-   # Crea elenco delle disponibilità occupate
-   busy_list = []
-   for b_start, b_end in intervals:
-       if b_start.strftime("%d/%m") == sel_date:
-           busy_list.append(f"• {b_start.strftime('%H:%M')} - {b_end.strftime('%H:%M')} (🚫)")
-   busy_text = "\n".join(busy_list) if busy_list else "Tutta la giornata è libera!"
+    # Filtro orari liberi
+    year = datetime.now().year
+    for t in times:
+        try:
+            start_dt = datetime.strptime(f"{sel_date}/{year} {t}", "%d/%m/%Y %H:%M")
+            end_dt = start_dt + timedelta(hours=dur_h)
+            overlap = any(start_dt < b_end and end_dt > b_start for b_start, b_end in intervals)
+            if not overlap:
+                kb.add(types.InlineKeyboardButton(text=t, callback_data=f"tm_{t}"))
+        except:
+            kb.add(types.InlineKeyboardButton(text=t, callback_data=f"tm_{t}"))
 
-   kb = InlineKeyboardBuilder()
-   times = ["09:00", "12:00", "15:00", "18:00", "21:00", "23:00"]
-   valid_times = []
+    kb.adjust(2)
+    kb.row(types.InlineKeyboardButton(text="✍️ Orario personalizzato", callback_data="custom_time"))
+    kb.row(types.InlineKeyboardButton(text="⬅️ Cambia giorno", callback_data="go_date"))
 
-   year = datetime.now().year
-   for t in times:
-       try:
-           start_dt = datetime.strptime(f"{sel_date}/{year} {t}", "%d/%m/%Y %H:%M")
-           if start_dt < datetime.now() - timedelta(days=60):
-               start_dt = start_dt.replace(year=year+1)
-           end_dt = start_dt + timedelta(hours=dur_h)
+    # Messaggio finale con parentesi chiuse correttamente
+    txt = (f"📅 <b>ORARI DISPONIBILI PER IL: <code>{sel_date}</code></b>\n"
+           f"{busy_text}\n\n"
+           f"⌚ <b>DURATA:</b> {dur_h}h\n"
+           f"➕ <b>AGGIUNTE:</b> {extra_str}\n\n"
+           f"Seleziona l'<b>orario di inizio</b> o digitalo tu:")
 
-           overlap = False
-           for b_start, b_end in intervals:
-               if start_dt < b_end and end_dt > b_start:
-                   overlap = True
-                   break
-
-           if not overlap:
-               valid_times.append(t)
-       except:
-           valid_times.append(t)
-
-   for t in valid_times: kb.add(types.InlineKeyboardButton(text=t, callback_data=f"tm_{t}"))
-   kb.adjust(2)
-
-   kb.row(types.InlineKeyboardButton(text="✍️ Inserisci orario personalizzato", callback_data="custom_time"))
-   kb.row(types.InlineKeyboardButton(text="⬅️ Cambia giorno", callback_data="go_date"))
-
-   txt = (f"📅 <b>ORARI DISPONIBILI PER IL: <code>{sel_date}</code></b>:\n"
-          f"{busy_text}\n\n"
-          f"⌚ <b>DURATA</b>: {dur_h}h\n\n"
-          f"➕ <b>AGGIUNTE</b>: {extra_str}\n\n"
-          f"Seleziona l'<b>orario di inizio</b> o digitalo tu:")
-
-   await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
-   await state.set_state(Flow.time)
+    await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
+    await state.set_state(Flow.time)
 
 @dp.callback_query(Flow.time, F.data == "custom_time")
 async def custom_time_prompt(callback: types.CallbackQuery, state: FSMContext):
