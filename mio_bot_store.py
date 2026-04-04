@@ -397,7 +397,7 @@ async def render_times(callback: types.CallbackQuery, state: FSMContext):
 
    txt = (f"📅 <b>ORARI DISPONIBILI PER IL: <code>{sel_date}</code></b>:\n"
           f"{busy_text}\n\n"
-          f"⌚ DURATA: {dur_h}h"\n\n
+          f"⌚ DURATA: {dur_h}h\n\n"
           f"Seleziona l'<b>orario di inizio</b> o digitalo tu:"
 
    await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
