@@ -1,4 +1,5 @@
-import asyncio
+
+++import asyncio
 import sqlite3
 import random
 import string
@@ -178,9 +179,8 @@ async def main_menu(obj):
    kb.row(types.InlineKeyboardButton(text="💰 Listino Prezzi", url="https://t.me/GlobalSportsSponsor"))
    kb.row(types.InlineKeyboardButton(text="⚙️ Come Funziona", callback_data="how_works"))
 
-   txt = """👋 <b>Benvenuto su GlobalSport ADS!</b>\n\n ✅ Il servizio ufficiale del Network per sponsorizzazioni
-   e incrementi per i tuoi canali/gruppi.\n\n 👇 Scegli il servizio di cui hai bisogno:"""
-   if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
+   txt = """👋 <b>Benvenuto su GlobalSport ADS!</b>\n\n✅ Il servizio ufficiale del Network per <b>sponsorizzazioni</b> e <b>incrementi</b> per i tuoi canali/gruppi.\n\n👇 <b>Scegli</b> il <b>servizio</b> di cui hai bisogno:"""
+   if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
    else: await obj.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "back_main")
@@ -191,11 +191,11 @@ async def back_main(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "how_works")
 async def how_works(callback: types.CallbackQuery):
-   txt = ("⚙️ **Come Funziona**\n\n"
-          "1️⃣ <b>Sponsor:</b> Scegli i canali, la durata (fissa o personalizzata), eventuali extra e poi seleziona la data e l'orario in base alle disponibilità.\n"
+   txt = ("⚙️ <b>COME FUNZIONA IL BOT</b>\n\n"
+          "1️⃣ <b>Sponsor:</b> Scegli i canali, la durata <i>(fissa o personalizzata)</i>, eventuali extra e poi seleziona la data e l'orario in base alle disponibilità.\n"
           "2️⃣ <b>Incrementi:</b> Scegli il pacchetto desiderato, aggiungi il nostro bot come admin al tuo canale con i permessi richiesti e invia il link.\n"
-          "3️⃣ <b>Pagamento:</b> Per entrambi i servizi, ti verrà fornito un IBAN e una CAUSALE univoca. Invia lo screen e attendi l'approvazione dell'admin!")
-   await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup(), parse_mode="HTML")
+          "3️⃣ <b>Pagamento:</b> Per entrambi i servizi, ti verrà fornito un <b>IBAN</b> e una <b>CAUSALE univoca</b>. Invia lo screen e attendi l'approvazione dell'admin!")
+   await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Torna al menù", callback_data="back_main")).as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "order_status")
 async def order_status(callback: types.CallbackQuery):
@@ -204,7 +204,7 @@ async def order_status(callback: types.CallbackQuery):
    c.execute("SELECT type, info, date, start_t, status FROM bookings WHERE user_id = ? ORDER BY id DESC LIMIT 5", (callback.from_user.id,))
    rows = c.fetchall()
    conn.close()
-   if not rows: txt = "🔍 Nessun ordine in corso."
+   if not rows: txt = "📄 <b>STATO DEL TUO ORDINE</b>\n\n 🔍 <i>Nessun ordine in corso.</i>"
    else: txt = "🔍 <b>I TUOI ULTIMI ORDINI:</b>\n\n" + "\n\n".join([f"📦 {r[0]} ({r[1]})\n📅 {r[2]} ore {r[3]}\nStato: {r[4]}" for r in rows])
    await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup(), parse_mode="HTML")
 
@@ -228,7 +228,7 @@ async def render_channels(callback, sel):
        kb.add(types.InlineKeyboardButton(text=f"{v} {'✅' if k in sel else ''}", callback_data=f"ch_{k}"))
    kb.adjust(2)
    if len(sel) == len(CHANNELS): kb.row(types.InlineKeyboardButton(text="❌ Deseleziona Tutti", callback_data="ch_none"))
-   else: kb.row(types.InlineKeyboardButton(text="✅ Seleziona Tutti", callback_data="ch_all"))
+   else: kb.row(types.InlineKeyboardButton(text="Seleziona Tutti", callback_data="ch_all"))
    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_dur"))
    await callback.message.edit_text("""👇 <b>Seleziona i canali</b> su cui desideri essere sponsorizzato:
    <i>(Puoi selezionarne anche più di uno.)</i>""", reply_markup=kb.as_markup(), parse_mode="HTML")
@@ -262,7 +262,7 @@ async def go_dur(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(Flow.duration, F.data == "custom_dur")
 async def custom_dur_prompt(callback: types.CallbackQuery, state: FSMContext):
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="go_dur"))
-   await callback.message.edit_text("""✍️ <b>DURATA PERSONALIZZATA</b>\n\n Scrivi il numero di ore che desideri (minimo 3, massimo 24).
+   await callback.message.edit_text("""✍️ <b>DURATA PERSONALIZZATA</b>\n\n Scrivi il numero di ore che desideri <i>(minimo 3, massimo 24)</i>.
                                     <b>SONO CONSENTITE SOLO ORE INTERE</b>\n\n Esempio:
                                     ⚫ Scrivi '4' per 4 ore""", reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.custom_duration)
@@ -398,7 +398,8 @@ async def render_times(callback: types.CallbackQuery, state: FSMContext):
 
    txt = (f"📅 <b>ORARI DISPONIBILI PER IL: <code>{sel_date}</code></b>:\n"
           f"{busy_text}\n\n"
-          f"⏰ **Seleziona l'orario (Durata: {dur_h}h):**")
+          f"⌚ DURATA: {dur_h}h"\n\n
+          f"Seleziona l'<b>orario di inizio</b> o digitalo tu:"
 
    await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.time)
@@ -440,7 +441,7 @@ async def custom_time_input(message: types.Message, state: FSMContext):
        await state.update_data(time=t_str)
        await render_recap(message, state)
    except:
-       await message.answer("⚠️ Formato non valido. Usa HH:MM (es. 14:30).")
+       await message.answer("⚠️ <b>FORMATO NON VALIDO</b>. Usa HH:MM (es. <code>14:00</code>).")
 
 @dp.callback_query(Flow.time, F.data.startswith("tm_"))
 async def handle_time(callback: types.CallbackQuery, state: FSMContext):
@@ -491,27 +492,27 @@ async def pay_sponsor(callback: types.CallbackQuery, state: FSMContext):
    cau = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
    await state.update_data(causale=cau)
 
-   txt = (f"💶 **PROCEDI CON IL PAGAMENTO**\n\n"
+   txt = (f"💶 <b>PROCEDI CON IL PAGAMENTO</b>\n\n"
           f"IBAN: `{IBAN_DATI}`\n"
-          f"Causale: `ADV-{cau}` (⚠️ OBBLIGATORIA)\n\n"
+          f"Causale: `ADV-{cau}`\n ❗ <b>ATTENZIONE</b>: la casuale è <b>OBBLIGATORIA</b>, se non inserita i soldi <b>andranno persi</b>\n\n"
           f"📸 Invia qui sotto lo screenshot del pagamento per completare l'ordine.")
 
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
-   await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+   await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.receipt_sponsor)
 
 @dp.message(Flow.receipt_sponsor, F.photo)
 async def rx_sponsor(message: types.Message, state: FSMContext):
    d = await state.get_data(); u = message.from_user
    ch_names = [CHANNELS[c] for c in d['channels']]
-   admin_txt = (f"🆕 **NUOVO ORDINE!**\n\n"
-                f"👤 Utente: @{u.username} ({u.id})\n"
-                f"📦 Acquisto: Sponsor\n"
-                f"📺 Canali: {', '.join(ch_names)}\n"
-                f"📅 Data: {d['date']}\n"
+   admin_txt = (f"🆕 <b>NUOVO ORDINE!</b>\n\n"
+                f"👤 <b>Utente</b>: @{u.username} ({u.id})\n"
+                f"📦 <b>Acquisto</b>: Sponsor\n"
+                f"🖥️ <b>Canali</b>: {', '.join(ch_names)}\n"
+                f"📅 <b>Data</b>: {d['date']}\n"
                 f"⏰ {d['time']} -> {d['end_t']}\n"
-                f"💰 Totale: {d['tot']:.2f}€\n"
-                f"🔑 Causale: ADV-{d['causale']}")
+                f"💰 <b>Totale</b>: {d['tot']:.2f}€\n"
+                f"🔑 <b>Causale</b>: ADV-{d['causale']}")
 
    # Salva in DB come In Attesa
    conn = sqlite3.connect('ads_booking.db')
@@ -521,8 +522,8 @@ async def rx_sponsor(message: types.Message, state: FSMContext):
    conn.commit(); conn.close()
 
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="✅ APPROVA", callback_data=f"adm_ok_{bid}"), types.InlineKeyboardButton(text="❌ RIFIUTA", callback_data=f"adm_no_{bid}"))
-   await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=admin_txt, reply_markup=kb.as_markup())
-   await message.answer("✅ Ricevuta inviata! L'ordine è in attesa di approvazione.")
+   await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=admin_txt, reply_markup=kb.as_markup(), parse_mode="HTML")
+   await message.answer("✅ <b>SCREEN RICEVUTO!</b> L'ordine è in attesa di approvazione.")
    await state.clear()
 
 # --- FLUSSO INCREMENTI ---
@@ -540,13 +541,13 @@ async def inc_package_sel(callback: types.CallbackQuery, state: FSMContext):
    pkg_id = callback.data.replace("inc_", "")
    await state.update_data(inc_pkg=pkg_id, inc_name=INCREMENT_PACKAGES[pkg_id])
 
-   txt = (f"📦 Hai scelto: {INCREMENT_PACKAGES[pkg_id]}\n\n"
-          f"⚠️ **Istruzioni Obbligatorie:**\n"
+   txt = (f"📦 <b>PACCHETTO SCELTO:</b> {INCREMENT_PACKAGES[pkg_id]}\n\n"
+          f"🛠️ <b>ISTRUZIONI OBBLIGATORIE:</b>\n"
           f"1️⃣ Aggiungi @GlobalStreaming2_bot come admin nel tuo canale/gruppo.\n"
           f"2️⃣ Assicurati di avergli dato il permesso 'Invita Utenti'.\n\n"
           f"🔗 Invia qui sotto il link del canale/gruppo.")
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
-   await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+   await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.inc_link)
 
 @dp.message(Flow.inc_link)
@@ -562,23 +563,23 @@ async def pay_inc(callback: types.CallbackQuery, state: FSMContext):
    cau = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
    await state.update_data(causale=cau)
 
-   txt = (f"💶 **PROCEDI CON IL PAGAMENTO**\n\n"
+   txt = (f"💶 <b>PROCEDI CON IL PAGAMENTO</b>\n\n"
           f"IBAN: `{IBAN_DATI}`\n"
-          f"Causale: `INC-{cau}` (⚠️ OBBLIGATORIA)\n\n"
-          f"📸 Invia qui sotto lo screenshot del pagamento.")
+          f"Causale: `INC-{cau}`\n ❗ <b>ATTENZIONE</b>: la casuale è <b>OBBLIGATORIA</b>, se non inserita i soldi <b>andranno persi</b>\n\n"
+          f"📸 Invia qui sotto lo screenshot del pagamento per completare l'ordine.")
 
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
-   await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+   await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.inc_receipt)
 
 @dp.message(Flow.inc_receipt, F.photo)
 async def rx_inc(message: types.Message, state: FSMContext):
    d = await state.get_data(); u = message.from_user
-   admin_txt = (f"🆕 **NUOVO ORDINE!**\n\n"
-                f"👤 Utente: @{u.username} ({u.id})\n"
-                f"📦 Acquisto: Incremento ({d['inc_name']})\n"
-                f"🔗 Link: {d['inc_link']}\n"
-                f"🔑 Causale: INC-{d['causale']}")
+   admin_txt = (f"🆕 <b>NUOVO ORDINE!</b>\n\n"
+                f"👤 <b>Utente</b>: @{u.username} ({u.id})\n"
+                f"📦 <b>Acquisto</b>: Incremento ({d['inc_name']})\n"
+                f"🔗 <b>Link</b>: {d['inc_link']}\n"
+                f"🔑 <b>Causale</b>: INC-{d['causale']}")
 
    conn = sqlite3.connect('ads_booking.db')
    conn.execute("INSERT INTO bookings (user_id, type, info, date, start_t, end_t, causale, status) VALUES (?,?,?,?,?,?,?,?)",
@@ -587,8 +588,8 @@ async def rx_inc(message: types.Message, state: FSMContext):
    conn.commit(); conn.close()
 
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="✅ APPROVA", callback_data=f"adm_ok_{bid}"), types.InlineKeyboardButton(text="❌ RIFIUTA", callback_data=f"adm_no_{bid}"))
-   await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=admin_txt, reply_markup=kb.as_markup())
-   await message.answer("✅ Ricevuta inviata! L'ordine è in attesa di approvazione.")
+   await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=admin_txt, reply_markup=kb.as_markup(), parse_mode="HTML")
+   await message.answer("✅ <b>SCREEN RICEVUTO!</b> L'ordine è in attesa di approvazione.")
    await state.clear()
 
 # --- ADMIN AZIONI ---
@@ -599,7 +600,7 @@ async def adm_ok(callback: types.CallbackQuery):
    conn.execute("UPDATE bookings SET status = 'APPROVATO' WHERE id = ?", (bid,))
    uid = conn.execute("SELECT user_id FROM bookings WHERE id = ?", (bid,)).fetchone()[0]
    conn.commit(); conn.close()
-   await bot.send_message(uid, "🎉 **IL TUO ORDINE È STATO APPROVATO!**")
+   await bot.send_message(uid, "✅ <b>IL TUO ORDINE È STATO APPROVATO!</b>")
    await callback.message.edit_caption(caption=callback.message.caption + "\n\n🟢 STATO: APPROVATO")
 
 @dp.callback_query(F.data.startswith("adm_no_"))
@@ -609,7 +610,7 @@ async def adm_no(callback: types.CallbackQuery):
    conn.execute("UPDATE bookings SET status = 'RIFIUTATO' WHERE id = ?", (bid,))
    uid = conn.execute("SELECT user_id FROM bookings WHERE id = ?", (bid,)).fetchone()[0]
    conn.commit(); conn.close()
-   await bot.send_message(uid, "❌ **IL TUO ORDINE È STATO RIFIUTATO.** Contatta l'assistenza.")
+   await bot.send_message(uid, "❌ <b>IL TUO ORDINE È STATO RIFIUTATO.</b> Per maggiori informazioni contatta l'assistenza.")
    await callback.message.edit_caption(caption=callback.message.caption + "\n\n🔴 STATO: RIFIUTATO")
 
 async def main():
