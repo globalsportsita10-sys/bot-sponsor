@@ -179,8 +179,8 @@ async def main_menu(obj):
    kb.row(types.InlineKeyboardButton(text="💰 Listino Prezzi", url="https://t.me/GlobalSportsSponsor"))
    kb.row(types.InlineKeyboardButton(text="⚙️ Come Funziona", callback_data="how_works"))
 
-   txt = "👋 <b>Benvenuto su GlobalSport ADS!</b>\n\n ✅ Il servizio ufficiale del Network per sponsorizzazioni
-   e incrementi per i tuoi canali/gruppi.\n\n 👇 Scegli il servizio di cui hai bisogno:"
+   txt = "👋 <b>Benvenuto su GlobalSport ADS!</b>\n\n" ✅ Il servizio ufficiale del Network per sponsorizzazioni
+   e incrementi per i tuoi canali/gruppi.\n\n" "👇 Scegli il servizio di cui hai bisogno:"
    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
    else: await obj.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
 
