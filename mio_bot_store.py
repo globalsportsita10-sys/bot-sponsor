@@ -333,7 +333,7 @@ async def render_calendar(callback: types.CallbackQuery, state: FSMContext):
    if nav_row: kb.row(*nav_row)
 
    kb.row(types.InlineKeyboardButton(text="🔙 Torna alle opzioni", callback_data="back_to_extras"))
-   await callback.message.edit_text("📅 <b>CALENDARIO</b>\n\n Scegli il <b>giorno</b> in cui preferisci essere <b>sponsorizzato</b>:, reply_markup=kb.as_markup(), parse_mode="HTML")
+   await callback.message.edit_text("📅 <b>CALENDARIO</b>\n\n Scegli il <b>giorno</b> in cui preferisci essere <b>sponsorizzato</b>:", reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.date)
 
 @dp.callback_query(Flow.date, F.data == "day_full")
