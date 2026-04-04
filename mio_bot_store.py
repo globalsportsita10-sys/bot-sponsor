@@ -1,5 +1,6 @@
 import asyncio
 import sqlite3
+import psycopg2
 import random
 import string
 import logging
@@ -24,7 +25,7 @@ def run_flask():
 
 API_TOKEN = '8513979649:AAEKT-ZT4cA9IhMtjaBFBzsNS_9a2sMGNkw'
 ADMIN_ID = 8361466889 # Inserisci il tuo ID
-IBAN_DATI = "IT 00 X 00000 00000 000000000000"
+IBAN_DATI = "IT73I0366901600873056346787"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
@@ -106,15 +107,15 @@ init_db()
 
 # --- DATI E PREZZI ---
 CHANNELS = {
-   "goal": "Football Goal ⚽️", "juve": "Juventus Planet ⚪️⚫️",
-   "str_1": "Streaming 1 📺", "str_2": "Streaming 2 📺", "str_3": "Streaming 3 📺",
-   "str_4": "Streaming 4 📺", "str_5": "Streaming 5 📺", "str_6": "Streaming 6 📺",
-   "str_7": "Streaming 7 📺", "str_8": "Streaming 8 📺", "str_9": "Streaming 9 📺"
+   "goal": "📹 Goal", "juve": "JuvePlanet ",
+   "str_1": "🖥️ Streaming 1", "str_2": "🖥️ Streaming 2", "str_3": "🖥️ Streaming 3",
+   "str_4": "🖥️ Streaming 4", "str_5": "🖥️ Streaming 5", "str_6": "🖥️ Streaming 6",
+   "str_7": "🖥️ Streaming 7", "str_8": "🖥️ Streaming 8", "str_9": "🖥️ Streaming 9"
 }
 
 INCREMENT_PACKAGES = {
-   "1K": "1K Membri - 50€", "2K": "2K Membri - 80€",
-   "3K": "3K Membri - 120€", "5K": "5K Membri - 200€"
+   "1K": "🔷 1K - 50€", "2K": "🔷 2K - 80€",
+   "3K": "🔶 3K - 120€", "5K": "🔶 5K - 200€"
 }
 
 class Flow(StatesGroup):
@@ -165,9 +166,9 @@ async def admin_panel(obj):
    kb = InlineKeyboardBuilder()
    kb.row(types.InlineKeyboardButton(text="📅 Prenotazioni", callback_data="adm_list"))
    kb.row(types.InlineKeyboardButton(text="🏠 Menu Utente", callback_data="back_main"))
-   txt = "🛠 **PANNELLO ADMIN**"
+   txt = "👮‍♂️ <b>PANNELLO ADMIN</b>"
    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
-   else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+   else: await obj.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 async def main_menu(obj):
    kb = InlineKeyboardBuilder()
@@ -178,9 +179,10 @@ async def main_menu(obj):
    kb.row(types.InlineKeyboardButton(text="💰 Listino Prezzi", url="https://t.me/GlobalSportsSponsor"))
    kb.row(types.InlineKeyboardButton(text="⚙️ Come Funziona", callback_data="how_works"))
 
-   txt = "👋 **Benvenuto nel Global Advertising Bot!** Scegli un'opzione:"
+   txt = "👋 <b>Benvenuto su GlobalSport ADS!</b>\n\n ✅ Il servizio ufficiale del Network per sponsorizzazioni
+   e incrementi per i tuoi canali/gruppi.\n\n 👇 Scegli il servizio di cui hai bisogno:"
    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
-   else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+   else: await obj.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "back_main")
 async def back_main(callback: types.CallbackQuery, state: FSMContext):
@@ -191,10 +193,10 @@ async def back_main(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "how_works")
 async def how_works(callback: types.CallbackQuery):
    txt = ("⚙️ **Come Funziona**\n\n"
-          "1️⃣ **Sponsor:** Scegli i canali, la durata (fissa o personalizzata), eventuali extra e poi seleziona la data e l'orario in base alle disponibilità.\n"
-          "2️⃣ **Incrementi:** Scegli il pacchetto desiderato, aggiungi il nostro bot come admin al tuo canale con i permessi richiesti e invia il link.\n"
-          "3️⃣ **Pagamento:** Per entrambi i servizi, ti verrà fornito un IBAN e una CAUSALE univoca. Invia lo screen e attendi l'approvazione dell'admin!")
-   await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup())
+          "1️⃣ <b>Sponsor:</b> Scegli i canali, la durata (fissa o personalizzata), eventuali extra e poi seleziona la data e l'orario in base alle disponibilità.\n"
+          "2️⃣ <b>Incrementi:</b> Scegli il pacchetto desiderato, aggiungi il nostro bot come admin al tuo canale con i permessi richiesti e invia il link.\n"
+          "3️⃣ <b>Pagamento:</b> Per entrambi i servizi, ti verrà fornito un IBAN e una CAUSALE univoca. Invia lo screen e attendi l'approvazione dell'admin!")
+   await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "order_status")
 async def order_status(callback: types.CallbackQuery):
@@ -204,16 +206,16 @@ async def order_status(callback: types.CallbackQuery):
    rows = c.fetchall()
    conn.close()
    if not rows: txt = "🔍 Nessun ordine in corso."
-   else: txt = "🔍 **I TUOI ULTIMI ORDINI:**\n\n" + "\n\n".join([f"📦 {r[0]} ({r[1]})\n📅 {r[2]} ore {r[3]}\nStato: {r[4]}" for r in rows])
-   await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup())
+   else: txt = "🔍 <b>I TUOI ULTIMI ORDINI:</b>\n\n" + "\n\n".join([f"📦 {r[0]} ({r[1]})\n📅 {r[2]} ore {r[3]}\nStato: {r[4]}" for r in rows])
+   await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "adm_list")
 async def adm_list(callback: types.CallbackQuery):
    conn = sqlite3.connect('ads_booking.db')
    rows = conn.execute("SELECT user_id, type, date, start_t, end_t FROM bookings WHERE status = 'APPROVATO' ORDER BY id DESC LIMIT 15").fetchall()
    conn.close()
-   txt = "📅 **PRENOTAZIONI APPROVATE:**\n\n" + "\n".join([f"👤 {r[0]} | {r[1]} | {r[2]} ({r[3]}-{r[4]})" for r in rows])
-   await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup())
+   txt = "📅 <b>PRENOTAZIONI APPROVATE:</b>\n\n" + "\n".join([f"👤 {r[0]} | {r[1]} | {r[2]} ({r[3]}-{r[4]})" for r in rows])
+   await callback.message.edit_text(txt, reply_markup=InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main")).as_markup(), parse_mode="HTML")
 
 # --- FLUSSO SPONSOR ---
 @dp.callback_query(F.data == "buy_sponsor")
@@ -229,7 +231,8 @@ async def render_channels(callback, sel):
    if len(sel) == len(CHANNELS): kb.row(types.InlineKeyboardButton(text="❌ Deseleziona Tutti", callback_data="ch_none"))
    else: kb.row(types.InlineKeyboardButton(text="✅ Seleziona Tutti", callback_data="ch_all"))
    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_dur"))
-   await callback.message.edit_text("📣 **Seleziona i canali per la sponsorizzazione:**", reply_markup=kb.as_markup())
+   await callback.message.edit_text("👇 <b>Seleziona i canali</b> su cui desideri essere sponsorizzato:
+   <i>(Puoi selezionarne anche più di uno.)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("ch_"))
 async def handle_channels(callback: types.CallbackQuery, state: FSMContext):
@@ -247,20 +250,22 @@ async def handle_channels(callback: types.CallbackQuery, state: FSMContext):
 async def go_dur(callback: types.CallbackQuery, state: FSMContext):
    data = await state.get_data()
    if not data.get('channels', []):
-       await callback.answer("Devi selezionare almeno un canale!", show_alert=True)
+       await callback.answer("⚠️ ATTENZIONE: Devi selezionare almeno un canale!", show_alert=True)
        return
    kb = InlineKeyboardBuilder()
    kb.row(types.InlineKeyboardButton(text="3 Ore", callback_data="dur_3"), types.InlineKeyboardButton(text="6 Ore", callback_data="dur_6"))
    kb.row(types.InlineKeyboardButton(text="12 Ore", callback_data="dur_12"), types.InlineKeyboardButton(text="24 Ore", callback_data="dur_24"))
    kb.row(types.InlineKeyboardButton(text="✍️ Scegli durata personalizzata", callback_data="custom_dur"))
    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="buy_sponsor"))
-   await callback.message.edit_text("⏳ **Scegli la durata della sponsorizzazione:**", reply_markup=kb.as_markup())
+   await callback.message.edit_text("⏱️ <b>SCELTA ORE</b>\n\n ➕ <b>Scegli</b> la durata della sponsorizzazione o <b>digitalo</b> tu", reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.duration)
 
 @dp.callback_query(Flow.duration, F.data == "custom_dur")
 async def custom_dur_prompt(callback: types.CallbackQuery, state: FSMContext):
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="go_dur"))
-   await callback.message.edit_text("✍️ Scrivi il numero di ore desiderate (Min 3, Max 24):", reply_markup=kb.as_markup())
+   await callback.message.edit_text("✍️ <b>DURATA PERSONALIZZATA</b>\n\n Scrivi il numero di ore che desideri (minimo 3, massimo 24).
+                                    <b>SONO CONSENTITE SOLO ORE INTERE</b>\n\n Esempio:
+                                    ⚫ Scrivi '4' per 4 ore", reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.custom_duration)
 
 @dp.message(Flow.custom_duration)
@@ -291,9 +296,9 @@ async def render_extras(obj, state):
    kb.row(types.InlineKeyboardButton(text="📅 Procedi con la data", callback_data="go_date"))
    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="go_dur"))
 
-   txt = "✨ **Aggiunte alla tua sponsorizzazione:**"
+   txt = "➕ <b>AGGIUNTE</b>\n\n Seleziona le aggiunte che preferisci <i>(il costo si applicherà ad ogni singolo canale)</i>"
    if isinstance(obj, types.Message): await obj.answer(txt, reply_markup=kb.as_markup())
-   else: await obj.message.edit_text(txt, reply_markup=kb.as_markup())
+   else: await obj.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.extras)
 
 @dp.callback_query(Flow.extras, F.data.startswith("ex_"))
@@ -328,7 +333,7 @@ async def render_calendar(callback: types.CallbackQuery, state: FSMContext):
    if nav_row: kb.row(*nav_row)
 
    kb.row(types.InlineKeyboardButton(text="🔙 Torna alle opzioni", callback_data="back_to_extras"))
-   await callback.message.edit_text("📅 **Scegli la data di pubblicazione:**", reply_markup=kb.as_markup())
+   await callback.message.edit_text("📅 <b>CALENDARIO</b>\n\n Scegli il <b>giorno</b> in cui preferisci essere <b>sponsorizzato</b>:, reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.date)
 
 @dp.callback_query(Flow.date, F.data == "day_full")
@@ -392,17 +397,17 @@ async def render_times(callback: types.CallbackQuery, state: FSMContext):
    kb.row(types.InlineKeyboardButton(text="✍️ Inserisci orario personalizzato", callback_data="custom_time"))
    kb.row(types.InlineKeyboardButton(text="⬅️ Cambia giorno", callback_data="go_date"))
 
-   txt = (f"📅 **Disponibilità per il {sel_date}:**\n"
+   txt = (f"📅 <b>ORARI DISPONIBILI PER IL: <code>{sel_date}</code></b>:\n"
           f"{busy_text}\n\n"
           f"⏰ **Seleziona l'orario (Durata: {dur_h}h):**")
 
-   await callback.message.edit_text(txt, reply_markup=kb.as_markup())
+   await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.time)
 
 @dp.callback_query(Flow.time, F.data == "custom_time")
 async def custom_time_prompt(callback: types.CallbackQuery, state: FSMContext):
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data=f"dt_{ (await state.get_data())['date'] }"))
-   await callback.message.edit_text("✍️ Scrivi l'orario nel formato HH:MM (es. 14:30):", reply_markup=kb.as_markup())
+   await callback.message.edit_text("✍️ Scrivi l'orario nel formato <b>HH:MM</b> <i>(es. 14:30)</i>:", reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.custom_time)
 
 @dp.message(Flow.custom_time)
@@ -466,21 +471,21 @@ async def render_recap(obj, state):
    if data.get('ext_nopost', 0) > 0: extra_txt.append(f"No-Post ({data['ext_nopost']}/3)")
    extra_str = ", ".join(extra_txt) if extra_txt else "Nessuna"
 
-   recap = (f"🛒 **IL TUO CARRELLO**\n\n"
-            f"📦 Pacchetto: Sponsor\n"
-            f"📺 Canali scelti: {', '.join(ch_names)}\n"
-            f"⏳ Ore: {h}h\n"
-            f"📅 Data: {data['date']}\n"
-            f"⏰ Inizio: {start_t} | Fine: {end_t}\n"
-            f"✨ Aggiunte: {extra_str}\n\n"
-            f"TOTALE DA PAGARE: {tot:.2f}€")
+   recap = (f"🛒 <b>IL TUO CARRELLO</b>\n\n"
+            f"📦 <b>Pacchetto:</b> Sponsor\n"
+            f"📺 <b>Canali Scelti:</b> {', '.join(ch_names)}\n"
+            f"⏱️ <b>Ore:</b> {h}h\n"
+            f"📅 <b>Data:</b> {data['date']}\n"
+            f"▶️ <b>Inizio:</b> {start_t} | <b>Fine:</b> {end_t}\n"
+            f"➕ <b>Aggiunte:</b> {extra_str}\n\n"
+            f"💰 <b>TOTALE DA PAGARE:</b> {tot:.2f}€")
 
    kb = InlineKeyboardBuilder()
    kb.row(types.InlineKeyboardButton(text="💶 Procedi con il pagamento", callback_data="pay_sponsor"))
    kb.row(types.InlineKeyboardButton(text="🔃 Modifica", callback_data="go_date"), types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
 
    if isinstance(obj, types.Message): await obj.answer(recap, reply_markup=kb.as_markup())
-   else: await obj.message.edit_text(recap, reply_markup=kb.as_markup())
+   else: await obj.message.edit_text(recap, reply_markup=kb.as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data == "pay_sponsor")
 async def pay_sponsor(callback: types.CallbackQuery, state: FSMContext):
