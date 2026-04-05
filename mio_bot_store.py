@@ -229,8 +229,7 @@ async def render_channels(callback, sel):
    if len(sel) == len(CHANNELS): kb.row(types.InlineKeyboardButton(text="❌ Deseleziona Tutti", callback_data="ch_none"))
    else: kb.row(types.InlineKeyboardButton(text="Seleziona Tutti", callback_data="ch_all"))
    kb.row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data="back_main"), types.InlineKeyboardButton(text="Avanti ➡️", callback_data="go_dur"))
-   await callback.message.edit_text("""👇 <b>Seleziona i canali</b> su cui desideri essere sponsorizzato:\n
-   <i>(Puoi selezionarne anche più di uno.)</i>""", reply_markup=kb.as_markup(), parse_mode="HTML")
+   await callback.message.edit_text("""👇 <b>Seleziona i canali</b> su cui desideri essere sponsorizzato:\n<i>(Puoi selezionarne anche più di uno.)</i>""", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("ch_"))
 async def handle_channels(callback: types.CallbackQuery, state: FSMContext):
@@ -261,9 +260,7 @@ async def go_dur(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(Flow.duration, F.data == "custom_dur")
 async def custom_dur_prompt(callback: types.CallbackQuery, state: FSMContext):
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="go_dur"))
-   await callback.message.edit_text("""✍️ <b>DURATA PERSONALIZZATA</b>\n\n Scrivi il numero di ore che desideri <i>(minimo 3, massimo 24)</i>.
-   <b>SONO CONSENTITE SOLO ORE INTERE</b>\n\n Esempio:
-   ● Scrivi '4' per 4 ore""", reply_markup=kb.as_markup(), parse_mode="HTML")
+   await callback.message.edit_text("""✍️ <b>DURATA PERSONALIZZATA</b>\n\nScrivi il numero di ore che desideri <i>(minimo 3, massimo 24)</i>.<b>SONO CONSENTITE SOLO ORE INTERE</b>\n\nEsempio:\n● Scrivi '4' per 4 ore""", reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.custom_duration)
 
 @dp.message(Flow.custom_duration)
@@ -492,8 +489,8 @@ async def pay_sponsor(callback: types.CallbackQuery, state: FSMContext):
 
    txt = (f"💶 <b>PROCEDI CON IL PAGAMENTO</b>\n\n"
           f"<b>IBAN</b>: `{IBAN_DATI}`\n"
-          f"<b>CASUALE</b>: `ADV-{cau}`\n ❗ <b>ATTENZIONE</b>: la casuale è <b>OBBLIGATORIA</b>, se non inserita i soldi <b>andranno persi</b>\n\n"
-          f"📸 Invia qui sotto lo screenshot del pagamento per completare l'ordine.")
+          f"<b>CASUALE</b>: `ADV-{cau}`\n\n ❗<b>ATTENZIONE</b>: la casuale è <b>OBBLIGATORIA</b>, se non inserita i soldi <b>andranno pers.i</b>\n\n"
+          f"📸 <i>Invia qui sotto lo screenshot del pagamento per completare l'ordine.</i>")
 
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
    await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
@@ -587,7 +584,7 @@ async def rx_inc(message: types.Message, state: FSMContext):
 
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="✅ APPROVA", callback_data=f"adm_ok_{bid}"), types.InlineKeyboardButton(text="❌ RIFIUTA", callback_data=f"adm_no_{bid}"))
    await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=admin_txt, reply_markup=kb.as_markup(), parse_mode="HTML")
-   await message.answer("✅ <b>SCREEN RICEVUTO!</b> L'ordine è in attesa di approvazione.")
+   await message.answer("✅ <b>SCREEN RICEVUTO!</b> L'ordine è in attesa di approvazione.", parse_mode="HTML")
    await state.clear()
 
 # --- ADMIN AZIONI ---
@@ -598,7 +595,7 @@ async def adm_ok(callback: types.CallbackQuery):
    conn.execute("UPDATE bookings SET status = 'APPROVATO' WHERE id = ?", (bid,))
    uid = conn.execute("SELECT user_id FROM bookings WHERE id = ?", (bid,)).fetchone()[0]
    conn.commit(); conn.close()
-   await bot.send_message(uid, "✅ <b>IL TUO ORDINE È STATO APPROVATO!</b>")
+   await bot.send_message(uid, "✅ <b>IL TUO ORDINE È STATO APPROVATO!</b>", parse_mode="HTML")
    await callback.message.edit_caption(caption=callback.message.caption + "\n\n🟢 STATO: APPROVATO")
 
 @dp.callback_query(F.data.startswith("adm_no_"))
@@ -608,7 +605,7 @@ async def adm_no(callback: types.CallbackQuery):
    conn.execute("UPDATE bookings SET status = 'RIFIUTATO' WHERE id = ?", (bid,))
    uid = conn.execute("SELECT user_id FROM bookings WHERE id = ?", (bid,)).fetchone()[0]
    conn.commit(); conn.close()
-   await bot.send_message(uid, "❌ <b>IL TUO ORDINE È STATO RIFIUTATO.</b> Per maggiori informazioni contatta l'assistenza.")
+   await bot.send_message(uid, "❌ <b>IL TUO ORDINE È STATO RIFIUTATO.</b> Per maggiori informazioni contatta l'assistenza.", parse_mode="HTML")
    await callback.message.edit_caption(caption=callback.message.caption + "\n\n🔴 STATO: RIFIUTATO")
 
 async def main():
