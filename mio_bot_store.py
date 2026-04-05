@@ -13,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
-
+LOGO_JUVE='<tg-emoji emoji-id="5330335044110756779">🦓</tg-emoji>"
 # --- CONFIGURAZIONE SERVER ---
 app = Flask(__name__)
 @app.route('/')
@@ -22,7 +22,7 @@ def run_flask():
    port = int(os.environ.get("PORT", 10000))
    app.run(host='0.0.0.0', port=port)
 
-API_TOKEN = '8513979649:AAE75RTIedS0VhQ1Ruq1C9co_SsfpH-cPPo'
+API_TOKEN = '8513979649:AAHo9scmwPodE1_-swaBaIzxJl1afG8glAw'
 ADMIN_ID = 8361466889 # Inserisci il tuo ID
 IBAN_DATI = "IT73I0366901600873056346787"
 
@@ -106,9 +106,9 @@ init_db()
 
 # --- DATI E PREZZI ---
 CHANNELS = {
-   "goal": "📹 Goal", "juve": "JuvePlanet ",
    "str_1": "🖥️ Streaming 1", "str_2": "🖥️ Streaming 2", "str_3": "🖥️ Streaming 3",
    "str_4": "🖥️ Streaming 4", "str_5": "🖥️ Streaming 5", "str_6": "🖥️ Streaming 6",
+   "goal": "📹 Goal", "juve": f"{LOGO_JUVE} JuvePlanet ",
    "str_7": "🖥️ Streaming 7", "str_8": "🖥️ Streaming 8", "str_9": "🖥️ Streaming 9"
 }
 
