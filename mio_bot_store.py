@@ -13,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.storage.memory import MemoryStorage
-LOGO_JUVE='<tg-emoji emoji-id="5330335044110756779">🦓</tg-emoji>"
+LOGO_JUVE="<tg-emoji emoji-id='5330335044110756779'>🦓</tg-emoji>"
 # --- CONFIGURAZIONE SERVER ---
 app = Flask(__name__)
 @app.route('/')
