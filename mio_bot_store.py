@@ -492,7 +492,7 @@ async def pay_sponsor(callback: types.CallbackQuery, state: FSMContext):
    txt = (f"💶 <b>PROCEDI CON IL PAGAMENTO</b>\n\n"
           f"<b>IBAN</b>: `{IBAN_DATI}`\n"
           f"<b>CASUALE</b>: `ADV-{cau}`\n\n ❗<b>ATTENZIONE</b>: la casuale è <b>OBBLIGATORIA</b>, se non inserita i soldi <b>andranno persi.</b>\n\n"
-          f"📸 <i>Invia qui sotto lo screenshot del pagamento per completare l'ordine.</i>", parse_mode="HTML")
+          f"📸 <i>Invia qui sotto lo screenshot del pagamento per completare l'ordine.</i>",)
 
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
    await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
