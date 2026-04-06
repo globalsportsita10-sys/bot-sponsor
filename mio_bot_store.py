@@ -475,7 +475,7 @@ async def render_recap(obj, state):
             f"📅 <b>DATA:</b> {data['date']}\n"
             f"▶️ <b>INIZIO:</b> {start_t} | <b>FINE:</b> {end_t}\n"
             f"➕ <b>AGGIUNTE:</b> {extra_str}\n\n"
-            f"💰 <b>TOTALE DA PAGARE:</b> {tot:.2f}€", parse_mode="HTML")
+            f"💰 <b>TOTALE DA PAGARE:</b> {tot:.2f}€")
 
    kb = InlineKeyboardBuilder()
    kb.row(types.InlineKeyboardButton(text="💶 Procedi con il pagamento", callback_data="pay_sponsor"))
@@ -492,7 +492,7 @@ async def pay_sponsor(callback: types.CallbackQuery, state: FSMContext):
    txt = (f"💶 <b>PROCEDI CON IL PAGAMENTO</b>\n\n"
           f"<b>IBAN</b>: `{IBAN_DATI}`\n"
           f"<b>CASUALE</b>: `ADV-{cau}`\n\n ❗<b>ATTENZIONE</b>: la casuale è <b>OBBLIGATORIA</b>, se non inserita i soldi <b>andranno persi.</b>\n\n"
-          f"📸 <i>Invia qui sotto lo screenshot del pagamento per completare l'ordine.</i>", parse_mode="HTML")
+          f"📸 <i>Invia qui sotto lo screenshot del pagamento per completare l'ordine.</i>")
 
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
    await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
@@ -509,7 +509,7 @@ async def rx_sponsor(message: types.Message, state: FSMContext):
                 f"📅 <b>DATA</b>: {d['date']}\n"
                 f"⏰ {d['time']} -> {d['end_t']}\n"
                 f"💰 <b>TOTALE</b>: {d['tot']:.2f}€\n"
-                f"🔑 <b>CASUALE</b>: ADV-{d['causale']}", parse_mode="HTML")
+                f"🔑 <b>CASUALE</b>: ADV-{d['causale']}")
 
    # Salva in DB come In Attesa
    conn = sqlite3.connect('ads_booking.db')
@@ -563,7 +563,7 @@ async def pay_inc(callback: types.CallbackQuery, state: FSMContext):
    txt = (f"💶 <b>PROCEDI CON IL PAGAMENTO</b>\n\n"
           f"<b>IBAN</b>: `{IBAN_DATI}`\n"
           f"<b>CASUALE</b>: `INC-{cau}`\n\n ❗<b>ATTENZIONE</b>: la casuale è <b>OBBLIGATORIA</b>, se non inserita i soldi <b>andranno persi.</b>\n\n"
-          f"📸 <i>Invia qui sotto lo screenshot del pagamento per completare l'ordine.</i>", parse_mode="HTML")
+          f"📸 <i>Invia qui sotto lo screenshot del pagamento per completare l'ordine.</i>")
 
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
    await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
@@ -576,7 +576,7 @@ async def rx_inc(message: types.Message, state: FSMContext):
                 f"👤 <b>UTENTE</b>: @{u.username} ({u.id})\n"
                 f"📦 <b>ACQUISTO</b>: Incremento ({d['inc_name']})\n"
                 f"🔗 <b>LINK</b>: {d['inc_link']}\n"
-                f"🔑 <b>CASUALE</b>: INC-{d['causale']}", parse_mode="HTML")
+                f"🔑 <b>CASUALE</b>: INC-{d['causale']}")
 
    conn = sqlite3.connect('ads_booking.db')
    conn.execute("INSERT INTO bookings (user_id, type, info, date, start_t, end_t, causale, status) VALUES (?,?,?,?,?,?,?,?)",
