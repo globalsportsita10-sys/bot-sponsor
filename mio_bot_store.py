@@ -542,7 +542,7 @@ async def inc_package_sel(callback: types.CallbackQuery, state: FSMContext):
           f"🛠️ <b>ISTRUZIONI OBBLIGATORIE:</b>\n"
           f"1️⃣ Aggiungi @GlobalStreaming2_bot come admin nel tuo canale/gruppo.\n"
           f"2️⃣ Assicurati di avergli dato il permesso '<b>Invita Utenti</b>'.\n\n"
-          f"🔗 <i>Invia qui sotto il link del canale/gruppo.</i>", parse_mode="HTML")
+          f"🔗 <i>Invia qui sotto il link del canale/gruppo.</i>")
    kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="❌ Annulla", callback_data="back_main"))
    await callback.message.edit_text(txt, reply_markup=kb.as_markup(), parse_mode="HTML")
    await state.set_state(Flow.inc_link)
