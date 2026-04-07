@@ -412,8 +412,19 @@ async def render_times(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(Flow.time, F.data == "custom_time")
 async def custom_time_prompt(callback: types.CallbackQuery, state: FSMContext):
-   kb = InlineKeyboardBuilder().row(types.InlineKeyboardButton(text="⬅️ Indietro", callback_data=f"dt_{ (await state.get_data())['date'] }"))
-   await callback.message.edit_text("✍️ Scrivi l'orario nel formato <b>HH:MM</b> <i>(es. 14:00)</i>:", reply_markup=kb.as_markup())
+   # Recupero la data salvata per permettere al tasto indietro di funzionare
+   data = await state.get_data()
+   sel_date = data.get('date', '01/01')
+
+   # CORREZIONE: Il callback deve puntare a dt_ + la data per tornare alla selezione orari
+   kb = InlineKeyboardBuilder().row(
+       types.InlineKeyboardButton(text="⬅️ Indietro", callback_data=f"dt_{sel_date}")
+   )
+
+   await callback.message.edit_text(
+       "✍️ Scrivi l'orario nel formato <b>HH:MM</b> <i>(es. 14:00)</i>:",
+       reply_markup=kb.as_markup()
+   )
    await state.set_state(Flow.custom_time)
 
 @dp.message(Flow.custom_time)
